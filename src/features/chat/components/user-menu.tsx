@@ -3,11 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { Avatar } from '@/components/ui/avatar'
-import { API_BASE_URL, APP_ENV, IS_DEMO_API } from '@/lib/api/client'
+import { API_BASE_URL, APP_ENV } from '@/lib/api/client'
 import { Dropdown, MenuItem, MenuLabel, MenuSeparator } from '@/components/ui/dropdown'
 import { cn } from '@/lib/cn'
 import { useCurrentUser } from '@/features/auth/session'
 import { useLogout } from '@/features/auth/hooks'
+
+const apiHost = API_BASE_URL.replace(/^https?:\/\//, '') || 'API sin configurar'
 
 interface UserMenuProps {
   align?: 'left' | 'right'
@@ -62,17 +64,17 @@ export function UserMenu({ align = 'right', size = 'md', dark = false, className
           <div className="mt-1.5">
             <MenuLabel>{user.workspace}</MenuLabel>
             <div
-              title={IS_DEMO_API ? 'Backend demo local' : API_BASE_URL}
+              title={API_BASE_URL || 'Configura VITE_BASE_API_URL en tu .env'}
               className="mx-2.5 mb-1.5 flex items-center gap-1.5 rounded-lg bg-surface px-2 py-1.5 text-[10px] font-medium text-ink-500 ring-1 ring-inset ring-line"
             >
               <span
                 className={cn(
-                  'size-1.5 rounded-full',
-                  IS_DEMO_API ? 'bg-amber-400' : 'bg-emerald-500',
+                  'size-1.5 shrink-0 rounded-full',
+                  API_BASE_URL ? 'bg-emerald-500' : 'bg-amber-400',
                 )}
               />
-              <span>{IS_DEMO_API ? 'API demo' : 'API real'}</span>
-              <span className="ml-auto truncate font-mono text-[10px] text-ink-400">
+              <span className="truncate">{apiHost}</span>
+              <span className="ml-auto shrink-0 font-mono text-[10px] text-ink-400">
                 {APP_ENV}
               </span>
             </div>

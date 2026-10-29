@@ -29,17 +29,6 @@ export interface SessionPayload {
   user: AuthUser
 }
 
-export interface CodeChallenge {
-  challengeId: string
-  identifier: string
-  /** Masked destination, e.g. d***e@gmail.com */
-  emailHint: string
-  expiresAt: string
-  resendAfterSeconds: number
-  /** Only present while the app runs with the built-in demo API. */
-  demoCode?: string
-}
-
 export interface ConversationStats {
   sessions: number
   durationSeconds: number

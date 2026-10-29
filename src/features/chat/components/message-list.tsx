@@ -116,11 +116,10 @@ function Bubble({ message, conversation, showAuthor }: BubbleProps) {
 interface MessageListProps {
   conversation: Conversation
   messages: Message[]
-  typingName?: string
   isLoading: boolean
 }
 
-export function MessageList({ conversation, messages, typingName, isLoading }: MessageListProps) {
+export function MessageList({ conversation, messages, isLoading }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const lastCount = useRef(0)
 
@@ -135,7 +134,7 @@ export function MessageList({ conversation, messages, typingName, isLoading }: M
       top: element.scrollHeight,
       behavior: isFirstRender ? 'auto' : 'smooth',
     })
-  }, [messages.length, typingName])
+  }, [messages.length])
 
   if (isLoading) {
     return (
@@ -210,21 +209,6 @@ export function MessageList({ conversation, messages, typingName, isLoading }: M
           )
         })}
 
-        {typingName ? (
-          <div className="flex items-end gap-2.5">
-            <Avatar name={typingName} size="xs" />
-            <div className="flex items-center gap-1 rounded-2xl rounded-tl-md bg-[#f1f3f9] px-3.5 py-3">
-              {[0, 1, 2].map((dot) => (
-                <motion.span
-                  key={dot}
-                  className="size-1.5 rounded-full bg-ink-400"
-                  animate={{ opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
-                  transition={{ duration: 1, repeat: Infinity, delay: dot * 0.15 }}
-                />
-              ))}
-            </div>
-          </div>
-        ) : null}
       </div>
     </div>
   )

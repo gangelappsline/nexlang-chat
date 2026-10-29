@@ -12,7 +12,7 @@ import { InboxSidebar } from '../components/inbox-sidebar'
 import { InfoPanel } from '../components/info-panel'
 import { NewConversationDialog } from '../components/new-conversation-dialog'
 import { WorkspaceRail } from '../components/workspace-rail'
-import { useConversation, useConversations, useRealtimeSync } from '../hooks'
+import { useConversation, useConversations } from '../hooks'
 
 export default function ChatPage() {
   const { conversationId } = useParams<{ conversationId: string }>()
@@ -26,8 +26,6 @@ export default function ChatPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const infoOpen = infoOverride ?? isWide
   const setInfoOpen = (value: boolean) => setInfoOverride(value)
-
-  useRealtimeSync()
 
   const conversations = useMemo(
     () => conversationsQuery.data ?? [],

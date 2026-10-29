@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { getErrorMessage } from '@/lib/api/errors'
 import type { Conversation, Message } from '@/types'
 
-import { useMarkRead, useSendMessage, useTypingName } from '../hooks'
+import { useMarkRead, useSendMessage } from '../hooks'
 import type { SendMessagePayload } from '../api'
 import { ChatHeader } from './chat-header'
 import { Composer } from './composer'
@@ -29,7 +29,6 @@ export function ChatView({
 }: ChatViewProps) {
   const sendMessage = useSendMessage(conversation.id)
   const markRead = useMarkRead()
-  const typingName = useTypingName(conversation.id)
   const readMarker = useRef<string | null>(null)
 
   useEffect(() => {
@@ -52,18 +51,12 @@ export function ChatView({
     <div className="flex h-full min-h-0 flex-1 flex-col bg-[#fbfbfe]">
       <ChatHeader
         conversation={conversation}
-        typingName={typingName}
         infoOpen={infoOpen}
         onBack={onBack}
         onToggleInfo={onToggleInfo}
       />
 
-      <MessageList
-        conversation={conversation}
-        messages={messages}
-        typingName={typingName}
-        isLoading={isLoading}
-      />
+      <MessageList conversation={conversation} messages={messages} isLoading={isLoading} />
 
       <Composer
         onSend={handleSend}

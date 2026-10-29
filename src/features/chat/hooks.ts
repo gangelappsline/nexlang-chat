@@ -1,8 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
-import { create } from 'zustand'
 
-import { subscribeDemoEvents } from '@/mocks/events'
 import type { Conversation, ConversationDetail, Message } from '@/types'
 
 import {
@@ -157,57 +154,4 @@ export function useCreateConversation() {
       void queryClient.invalidateQueries({ queryKey: chatKeys.list() })
     },
   })
-}
-
-/* ------------------------------------------------------------------ */
-/* realtime (demo backend)                                            */
-/* ------------------------------------------------------------------ */
-
-interface TypingState {
-  typing: Record<string, string | undefined>
-  setTyping: (conversationId: string, name?: string) => void
-  clearTyping: (conversationId: string) => void
-}
-
-export const useTypingStore = create<TypingState>()((set) => ({
-  typing: {},
-  setTyping: (conversationId, name) =>
-    set((state) => ({ typing: { ...state.typing, [conversationId]: name } })),
-  clearTyping: (conversationId) =>
-    set((state) => {
-      const next = { ...state.typing }
-      delete next[conversationId]
-      return { typing: next }
-    }),
-}))
-
-export function useTypingName(conversationId: string | undefined) {
-  return useTypingStore((state) => (conversationId ? state.typing[conversationId] : undefined))
-}
-
-/**
- * The demo backend emits events when a simulated visitor replies.
- * In production this is the place to plug a WebSocket / SSE stream.
- */
-export function useRealtimeSync() {
-  const queryClient = useQueryClient()
-
-  useEffect(
-    () =>
-      subscribeDemoEvents((event) => {
-        if (event.type === 'message') {
-          void queryClient.invalidateQueries({ queryKey: chatKeys.list() })
-          void queryClient.invalidateQueries({
-            queryKey: chatKeys.conversation(event.conversationId),
-          })
-        }
-
-        if (event.type === 'typing') {
-          const { setTyping, clearTyping } = useTypingStore.getState()
-          if (event.typing) setTyping(event.conversationId, event.name)
-          else clearTyping(event.conversationId)
-        }
-      }),
-    [queryClient],
-  )
 }

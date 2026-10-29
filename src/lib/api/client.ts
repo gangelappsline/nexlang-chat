@@ -1,4 +1,3 @@
-import { mockRequest } from '@/mocks/api'
 import type { AuthUser } from '@/types'
 
 import { SESSION_STORAGE_KEY } from '../constants'
@@ -13,21 +12,14 @@ const trimBase = (value: string | undefined) => (value ?? '').trim().replace(/\/
 /**
  * Base de todas las peticiones.
  *
- * - `.env.development` → `VITE_BASE_API_URL=http://localhost:4000/api` (`npm run dev`)
- * - `.env.production`  → `VITE_BASE_API_URL=https://api.nexlang.io/v1` (`npm run build`)
+ * - `.env.development` → `VITE_BASE_API_URL=http://localhost:3000` (`npm run dev`)
+ * - `.env.production`  → `VITE_BASE_API_URL=https://api.nexlang.io` (`npm run build`)
  *
  * Se mantiene `VITE_API_BASE_URL` como alias por compatibilidad.
  */
 export const API_BASE_URL = trimBase(
   import.meta.env.VITE_BASE_API_URL ?? import.meta.env.VITE_API_BASE_URL,
 )
-
-/**
- * Mientras no exista un backend real (o `VITE_USE_MOCK_API` no sea `false`),
- * las peticiones se resuelven con el backend demo de `src/mocks`.
- */
-export const IS_DEMO_API =
-  import.meta.env.VITE_USE_MOCK_API !== 'false' || API_BASE_URL.length === 0
 
 /** Entorno activo: `development`, `staging`, `production`… */
 export const APP_ENV = import.meta.env.VITE_ENVIRONMENT ?? import.meta.env.MODE
@@ -41,7 +33,7 @@ export const DEBUG_REQUESTS =
 
 if (import.meta.env.DEV) {
   console.info(
-    `[api] entorno=${APP_ENV} · base=${IS_DEMO_API ? 'demo (local)' : API_BASE_URL} · timeout=${REQUEST_TIMEOUT_MS}ms`,
+    `[api] entorno=${APP_ENV} · base=${API_BASE_URL || '(sin configurar)'} · timeout=${REQUEST_TIMEOUT_MS}ms`,
   )
 }
 
@@ -180,7 +172,6 @@ function extractError(payload: unknown, status: number) {
  * - Usa `VITE_BASE_API_URL` como base de la ruta.
  * - Envía `Authorization: Bearer <token>` si hay un token guardado.
  * - Normaliza errores en `ApiError` y cierra la sesión ante un 401.
- * - Con el modo demo activo resuelve contra `src/mocks` (sin red).
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const {
@@ -194,14 +185,6 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   } = options
 
   const token = auth ? getStoredAccessToken() : null
-
-  if (IS_DEMO_API) {
-    if (DEBUG_REQUESTS) {
-      console.debug(`[api:demo] ${method} ${path}`, { auth: Boolean(token) })
-    }
-    return mockRequest<T>(path, { method, body, signal, token })
-  }
-
   const url = buildUrl(path, query)
   const controller = new AbortController()
   const abortFromCaller = () => controller.abort()

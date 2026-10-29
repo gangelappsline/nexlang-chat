@@ -5,12 +5,16 @@ import { toast } from 'sonner'
 
 import { firstName } from '@/lib/format'
 import { useCountdown } from '@/lib/use-countdown'
-import type { CodeChallenge } from '@/types'
 
+import type { LoginCodeChallenge } from '../api'
 import { AuthLayout } from '../components/auth-layout'
 import { IdentifierStep } from '../components/identifier-step'
 import { VerificationStep } from '../components/verification-step'
-import { useRequestCode, useResendCode, useVerifyCode } from '../hooks'
+import {
+  useRequestLoginCode,
+  useResendLoginCode,
+  useVerifyLoginCode,
+} from '../hooks'
 
 const variants = {
   enter: { opacity: 0, x: 24 },
@@ -21,25 +25,25 @@ const variants = {
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const [challenge, setChallenge] = useState<CodeChallenge | null>(null)
+  const [challenge, setChallenge] = useState<LoginCodeChallenge | null>(null)
 
-  const requestCode = useRequestCode()
-  const resendCode = useResendCode()
-  const verifyCode = useVerifyCode()
+  const requestCode = useRequestLoginCode()
+  const resendCode = useResendLoginCode()
+  const verifyCode = useVerifyLoginCode()
   const { seconds, restart } = useCountdown(0)
 
   useEffect(() => {
     document.title = 'Acceso · Nexlang Chat'
   }, [])
 
-  const handleRequest = (identifier: string) => {
-    requestCode.mutate(identifier, {
+  const handleRequest = (email: string) => {
+    requestCode.mutate(email, {
       onSuccess: (data) => {
         setChallenge(data)
         restart(data.resendAfterSeconds)
         verifyCode.reset()
         toast.success('Código enviado', {
-          description: `Revisa la bandeja de entrada de ${data.emailHint}.`,
+          description: `Revisa la bandeja de entrada de ${data.email}.`,
         })
       },
     })
@@ -49,7 +53,7 @@ export default function LoginPage() {
     if (!challenge) return
 
     verifyCode.mutate(
-      { challengeId: challenge.challengeId, code },
+      { email: challenge.email, code },
       {
         onSuccess: (session) => {
           toast.success(`¡Bienvenido, ${firstName(session.user.name)}!`, {
@@ -66,7 +70,7 @@ export default function LoginPage() {
   const handleResend = () => {
     if (!challenge) return
 
-    resendCode.mutate(challenge.challengeId, {
+    resendCode.mutate(challenge.email, {
       onSuccess: (data) => {
         setChallenge(data)
         restart(data.resendAfterSeconds)
@@ -96,7 +100,7 @@ export default function LoginPage() {
             transition={{ duration: 0.24, ease: [0.2, 0.8, 0.3, 1] }}
           >
             <VerificationStep
-              challenge={challenge}
+              email={challenge.email}
               loading={verifyCode.isPending}
               error={verifyCode.error}
               seconds={seconds}
@@ -106,6 +110,7 @@ export default function LoginPage() {
               onBack={() => {
                 setChallenge(null)
                 verifyCode.reset()
+                requestCode.reset()
               }}
             />
           </motion.div>
