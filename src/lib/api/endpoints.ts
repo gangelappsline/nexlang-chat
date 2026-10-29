@@ -8,6 +8,13 @@ export const API_PATHS = {
   /** Login sin contraseña · paso 2: valida el código y devuelve el token. */
   loginValidation: '/v1/chat/login-validation',
   logout: '/v1/chat/logout',
+  /** Listado y creación de conversaciones. */
   conversations: '/v1/chat/conversations',
-  directory: '/v1/chat/directory',
+  conversation: (id: string) => `/v1/chat/conversations/${encodeURIComponent(id)}`,
+  /** Mensajes de una conversación (GET para listar, POST para enviar). */
+  messages: (id: string) => `/v1/chat/conversations/${encodeURIComponent(id)}/messages`,
+  /** Marca la conversación como leída. */
+  read: (id: string) => `/v1/chat/conversations/${encodeURIComponent(id)}/read`,
+  /** Usuarios disponibles para iniciar una conversación (sin el usuario logueado). */
+  users: '/v1/chat/users',
 } as const

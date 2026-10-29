@@ -1,29 +1,12 @@
-import {
-  Archive,
-  ArchiveRestore,
-  BellOff,
-  BellRing,
-  ChevronLeft,
-  CircleCheck,
-  Copy,
-  MoreVertical,
-  PanelRight,
-  Phone,
-  Pin,
-  PinOff,
-  UsersRound,
-  Video,
-} from 'lucide-react'
+import { ChevronLeft, Copy, PanelRight, UsersRound } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Avatar, AvatarStack } from '@/components/ui/avatar'
 import { IconButton } from '@/components/ui/button'
-import { Dropdown, MenuItem, MenuSeparator } from '@/components/ui/dropdown'
-import { cn } from '@/lib/cn'
+import { useCurrentUser } from '@/features/auth/session'
 import type { Conversation } from '@/types'
 
-import { useUpdateConversation } from '../hooks'
-import { channelLabels, onlineMembers, statusMeta } from '../utils'
+import { otherParticipants } from '../utils'
 
 interface ChatHeaderProps {
   conversation: Conversation
@@ -38,17 +21,9 @@ export function ChatHeader({
   onBack,
   onToggleInfo,
 }: ChatHeaderProps) {
-  const update = useUpdateConversation()
-  const status = statusMeta[conversation.status]
+  const user = useCurrentUser()
   const isGroup = conversation.type === 'group'
-  const online = onlineMembers(conversation)
-
-  const patch = (payload: Parameters<typeof update.mutate>[0]['patch'], message: string) => {
-    update.mutate(
-      { id: conversation.id, patch: payload },
-      { onSuccess: () => toast.success(message) },
-    )
-  }
+  const others = otherParticipants(conversation, user?.id)
 
   const copyLink = async () => {
     const url = `${window.location.origin}/c/${conversation.id}`
@@ -73,94 +48,38 @@ export function ChatHeader({
 
       {isGroup ? (
         <AvatarStack
-          people={(conversation.members ?? []).map((member) => ({ name: member.name }))}
+          people={others.map((participant) => ({
+            name: participant.name,
+            photoUrl: participant.photoUrl,
+          }))}
           size="sm"
           max={2}
         />
       ) : (
-        <Avatar
-          name={conversation.title}
-          accent={conversation.accent}
-          size="md"
-          presence={conversation.profile?.presence}
-        />
+        <Avatar name={others[0]?.name ?? conversation.title} photoUrl={others[0]?.photoUrl} size="md" />
       )}
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <h2 className="truncate text-[14.5px] font-semibold text-ink-900">
-            {conversation.title}
-          </h2>
-          {conversation.pinned ? <Pin className="size-3 shrink-0 text-ink-300" /> : null}
-          {conversation.muted ? (
-            <BellOff className="size-3 shrink-0 text-ink-300" aria-label="Silenciada" />
-          ) : null}
-        </div>
+        <h2 className="truncate text-[14.5px] font-semibold text-ink-900">{conversation.title}</h2>
 
-        <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px]">
+        <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-ink-500">
           {isGroup ? (
             <>
               <UsersRound className="size-3 text-ink-400" />
-              <span className="truncate text-ink-500">
-                {conversation.members?.length ?? 0} miembros · {online.length} en línea
+              <span className="truncate">
+                {conversation.participantCount}{' '}
+                {conversation.participantCount === 1 ? 'miembro' : 'miembros'}
               </span>
             </>
           ) : (
-            <>
-              <span
-                className={cn(
-                  'size-1.5 rounded-full',
-                  conversation.profile?.presence === 'online'
-                    ? 'bg-emerald-500'
-                    : conversation.profile?.presence === 'away'
-                      ? 'bg-amber-400'
-                      : 'bg-ink-300',
-                )}
-              />
-              <span className="truncate text-ink-500">
-                {conversation.profile?.presence === 'online'
-                  ? 'En línea'
-                  : conversation.profile?.presence === 'away'
-                    ? 'Ausente'
-                    : 'Desconectado'}{' '}
-                · {channelLabels[conversation.channel]}
-              </span>
-            </>
+            <span className="truncate">{others[0]?.email ?? 'Chat directo'}</span>
           )}
         </div>
       </div>
 
-      <span
-        className={cn(
-          'hidden shrink-0 items-center rounded-full px-2.5 py-1 text-[10.5px] font-semibold ring-1 ring-inset sm:inline-flex',
-          status.className,
-        )}
-      >
-        {status.label}
-      </span>
-
       <div className="flex shrink-0 items-center gap-0.5">
-        <IconButton
-          label="Llamar"
-          className="hidden sm:inline-flex"
-          onClick={() =>
-            toast.info('Llamada de voz', {
-              description: 'Las llamadas estarán disponibles en la app de escritorio.',
-            })
-          }
-        >
-          <Phone className="size-[17px]" />
-        </IconButton>
-        <IconButton
-          label="Videollamada"
-          className="hidden sm:inline-flex"
-          onClick={() =>
-            toast.info('Videollamada', {
-              description: 'Las videollamadas estarán disponibles en la app de escritorio.',
-            })
-          }
-        >
-          <Video className="size-[17px]" />
+        <IconButton label="Copiar enlace" className="hidden sm:inline-flex" onClick={() => void copyLink()}>
+          <Copy className="size-[17px]" />
         </IconButton>
 
         <IconButton
@@ -170,83 +89,6 @@ export function ChatHeader({
         >
           <PanelRight className="size-[17px]" />
         </IconButton>
-
-        <Dropdown
-          align="right"
-          trigger={({ toggle }) => (
-            <IconButton label="Más acciones" onClick={toggle}>
-              <MoreVertical className="size-[17px]" />
-            </IconButton>
-          )}
-        >
-          {({ close }) => (
-            <>
-              <MenuItem
-                icon={conversation.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
-                onClick={() => {
-                  close()
-                  patch(
-                    { pinned: !conversation.pinned },
-                    conversation.pinned
-                      ? 'Conversación desfijada'
-                      : 'Conversación fijada en la bandeja',
-                  )
-                }}
-              >
-                {conversation.pinned ? 'Dejar de fijar' : 'Fijar conversación'}
-              </MenuItem>
-              <MenuItem
-                icon={conversation.muted ? <BellRing className="size-4" /> : <BellOff className="size-4" />}
-                onClick={() => {
-                  close()
-                  patch(
-                    { muted: !conversation.muted },
-                    conversation.muted ? 'Notificaciones activadas' : 'Conversación silenciada',
-                  )
-                }}
-              >
-                {conversation.muted ? 'Activar notificaciones' : 'Silenciar'}
-              </MenuItem>
-              <MenuItem
-                icon={<CircleCheck className="size-4" />}
-                onClick={() => {
-                  close()
-                  patch({ status: 'closed' }, 'Conversación marcada como resuelta')
-                }}
-              >
-                Marcar como resuelta
-              </MenuItem>
-              <MenuSeparator />
-              <MenuItem
-                icon={<Copy className="size-4" />}
-                onClick={() => {
-                  close()
-                  void copyLink()
-                }}
-              >
-                Copiar enlace
-              </MenuItem>
-              <MenuItem
-                icon={
-                  conversation.archived ? (
-                    <ArchiveRestore className="size-4" />
-                  ) : (
-                    <Archive className="size-4" />
-                  )
-                }
-                onClick={() => {
-                  close()
-                  patch(
-                    { archived: !conversation.archived },
-                    conversation.archived ? 'Conversación restaurada' : 'Conversación archivada',
-                  )
-                }}
-              >
-                {conversation.archived ? 'Restaurar' : 'Archivar'}
-              </MenuItem>
-            </>
-          )}
-        </Dropdown>
       </div>
     </header>
   )

@@ -2,7 +2,6 @@ import {
   ArrowUpDown,
   Check,
   Inbox,
-  Pin,
   Plus,
   RefreshCw,
   Search,
@@ -14,17 +13,19 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LogoMark } from '@/components/brand/logo'
 import { Avatar } from '@/components/ui/avatar'
-import { Dropdown, MenuItem } from '@/components/ui/dropdown'
 import { IconButton } from '@/components/ui/button'
+import { Dropdown, MenuItem } from '@/components/ui/dropdown'
 import { EmptyState, Kbd, Skeleton } from '@/components/ui/primitives'
+import { useCurrentUser } from '@/features/auth/session'
 import { cn } from '@/lib/cn'
 import { formatListTime } from '@/lib/format'
 import type { Conversation } from '@/types'
 
 import {
-  channelMeta,
   conversationPreview,
+  countUnread,
   filterConversations,
+  otherParticipants,
   type InboxFilter,
 } from '../utils'
 import { UserMenu } from './user-menu'
@@ -52,25 +53,28 @@ const filters: { key: InboxFilter; label: string }[] = [
   { key: 'all', label: 'Todos' },
   { key: 'unread', label: 'No leídos' },
   { key: 'groups', label: 'Grupos' },
-  { key: 'archived', label: 'Archivados' },
 ]
 
 function ConversationRow({
   conversation,
   active,
+  currentUserId,
   onSelect,
 }: {
   conversation: Conversation
   active: boolean
+  currentUserId: string | null
   onSelect: () => void
 }) {
-  const channel = channelMeta[conversation.channel]
-  const ChannelIcon = conversation.type === 'group' ? UsersRound : channel.icon
+  const unread = conversation.unreadCount > 0
+  const others = otherParticipants(conversation, currentUserId)
+  const isGroup = conversation.type === 'group'
 
   return (
     <button
       type="button"
       onClick={onSelect}
+      aria-current={active ? 'true' : undefined}
       className={cn(
         'group relative flex w-full items-start gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors',
         active ? 'bg-brand-50/80' : 'hover:bg-surface',
@@ -80,28 +84,34 @@ function ConversationRow({
         <span className="absolute left-0 top-1/2 h-7 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-600" />
       ) : null}
 
-      <Avatar
-        name={conversation.title}
-        accent={conversation.accent}
-        size="md"
-        rounded={conversation.type === 'group' ? 'xl' : 'full'}
-        presence={conversation.type === 'direct' ? conversation.profile?.presence : undefined}
-        badge={<ChannelIcon className={cn('size-2.5', channel.className)} />}
-      />
+      {isGroup ? (
+        <Avatar
+          name={conversation.title}
+          size="md"
+          rounded="xl"
+          badge={<UsersRound className="size-2.5 text-ink-500" />}
+        />
+      ) : (
+        <Avatar
+          name={others[0]?.name ?? conversation.title}
+          photoUrl={others[0]?.photoUrl}
+          size="md"
+        />
+      )}
 
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-1.5">
           <p
             className={cn(
-              'truncate text-[13.5px] font-semibold',
-              active ? 'text-brand-800' : 'text-ink-900',
+              'truncate text-[13.5px]',
+              unread ? 'font-bold text-ink-900' : 'font-semibold text-ink-900',
+              active && !unread && 'text-brand-800',
             )}
           >
             {conversation.title}
           </p>
-          {conversation.pinned ? <Pin className="size-3 shrink-0 text-ink-300" /> : null}
           <span className="ml-auto shrink-0 text-[10.5px] font-medium text-ink-400">
-            {formatListTime(conversation.updatedAt)}
+            {formatListTime(conversation.updatedAt || conversation.createdAt)}
           </span>
         </div>
 
@@ -109,18 +119,21 @@ function ConversationRow({
           <p
             className={cn(
               'truncate text-[12px] leading-snug',
-              conversation.unreadCount > 0 ? 'font-medium text-ink-700' : 'text-ink-500',
+              unread ? 'font-semibold text-ink-800' : 'text-ink-500',
             )}
           >
-            {conversationPreview(conversation)}
+            {conversationPreview(conversation, currentUserId)}
           </p>
-          {conversation.unreadCount > 0 ? (
-            <span className="ml-auto grid min-w-[19px] shrink-0 place-items-center rounded-full bg-brand-600 px-1.5 py-[1px] text-[10px] font-bold text-white">
+          {unread ? (
+            <span
+              aria-label={`${conversation.unreadCount} mensajes sin leer`}
+              className="ml-auto grid min-w-[19px] shrink-0 place-items-center rounded-full bg-brand-600 px-1.5 py-[1px] text-[10px] font-bold text-white"
+            >
               {conversation.unreadCount > 9 ? '9+' : conversation.unreadCount}
             </span>
-          ) : conversation.type === 'group' ? (
+          ) : isGroup ? (
             <span className="ml-auto shrink-0 text-[10.5px] text-ink-400">
-              {conversation.members?.length ?? 0}
+              {conversation.participantCount} miembros
             </span>
           ) : null}
         </div>
@@ -143,6 +156,8 @@ export function InboxSidebar({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortKey>('recent')
   const searchRef = useRef<HTMLInputElement>(null)
+  const user = useCurrentUser()
+  const currentUserId = user?.id ?? null
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -159,34 +174,27 @@ export function InboxSidebar({
   const visible = useMemo(() => {
     const filtered = filterConversations(conversations, { filter, query })
     if (sort === 'name') return [...filtered].sort((a, b) => a.title.localeCompare(b.title, 'es'))
-    if (sort === 'unread') {
-      return [...filtered].sort((a, b) => b.unreadCount - a.unreadCount)
-    }
+    if (sort === 'unread') return [...filtered].sort((a, b) => b.unreadCount - a.unreadCount)
     return filtered
   }, [conversations, filter, query, sort])
 
-  const pinned = visible.filter((conversation) => conversation.pinned)
-  const rest = visible.filter((conversation) => !conversation.pinned)
-
   const counts = useMemo(
     () => ({
-      all: conversations.filter((conversation) => !conversation.archived).length,
-      unread: conversations.filter(
-        (conversation) => !conversation.archived && conversation.unreadCount > 0,
-      ).length,
-      groups: conversations.filter(
-        (conversation) => !conversation.archived && conversation.type === 'group',
-      ).length,
-      archived: conversations.filter((conversation) => conversation.archived).length,
+      all: conversations.length,
+      unread: conversations.filter((conversation) => conversation.unreadCount > 0).length,
+      groups: conversations.filter((conversation) => conversation.type === 'group').length,
     }),
     [conversations],
   )
+
+  const unreadTotal = countUnread(conversations)
 
   const renderList = (items: Conversation[]) =>
     items.map((conversation) => (
       <ConversationRow
         key={conversation.id}
         conversation={conversation}
+        currentUserId={currentUserId}
         active={conversation.id === activeId}
         onSelect={() => onSelect(conversation.id)}
       />
@@ -348,9 +356,11 @@ export function InboxSidebar({
             description={
               query
                 ? `No encontramos conversaciones que coincidan con “${query}”.`
-                : filter === 'archived'
-                  ? 'Las conversaciones que archives aparecerán aquí.'
-                  : 'Cuando alguien te escriba, verás la conversación en esta bandeja.'
+                : filter === 'unread'
+                  ? 'No tienes mensajes sin leer.'
+                  : filter === 'groups'
+                    ? 'Todavía no participas en ningún grupo.'
+                    : 'Inicia una conversación con alguien de tu equipo.'
             }
             action={
               query ? (
@@ -373,39 +383,18 @@ export function InboxSidebar({
             }
           />
         ) : (
-          <div>
-            {pinned.length > 0 ? (
-              <div className="mb-1">
-                <p className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
-                  Fijados
-                </p>
-                <div className="space-y-0.5">{renderList(pinned)}</div>
-              </div>
-            ) : null}
-            {rest.length > 0 ? (
-              <div>
-                {pinned.length > 0 ? (
-                  <p className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-ink-400">
-                    Recientes
-                  </p>
-                ) : null}
-                <div className="space-y-0.5">{renderList(rest)}</div>
-              </div>
-            ) : null}
-          </div>
+          <div className="space-y-0.5">{renderList(visible)}</div>
         )}
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-2.5">
-        <span className="flex items-center gap-1.5 text-[11px] text-ink-400">
-          <span className="relative flex size-1.5">
-            <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
-          </span>
-          Sincronizado en tiempo real
+        <span className="text-[11px] text-ink-400">
+          {unreadTotal > 0
+            ? `${unreadTotal} ${unreadTotal === 1 ? 'mensaje sin leer' : 'mensajes sin leer'}`
+            : 'Todo al día'}
         </span>
         <span className="text-[11px] font-medium text-ink-400">
-          {conversations.length} conversaciones
+          {conversations.length} {conversations.length === 1 ? 'conversación' : 'conversaciones'}
         </span>
       </div>
     </aside>

@@ -21,7 +21,7 @@ interface NewConversationDialogProps {
 export function NewConversationDialog({ open, onClose, onCreated }: NewConversationDialogProps) {
   const [mode, setMode] = useState<'direct' | 'group'>('direct')
   const [selected, setSelected] = useState<string[]>([])
-  const [title, setTitle] = useState('')
+  const [name, setName] = useState('')
   const [query, setQuery] = useState('')
 
   const directoryQuery = useDirectory(open)
@@ -30,7 +30,7 @@ export function NewConversationDialog({ open, onClose, onCreated }: NewConversat
   const close = () => {
     setMode('direct')
     setSelected([])
-    setTitle('')
+    setName('')
     setQuery('')
     create.reset()
     onClose()
@@ -42,66 +42,101 @@ export function NewConversationDialog({ open, onClose, onCreated }: NewConversat
     if (!needle) return list
     return list.filter(
       (person) =>
-        person.name.toLowerCase().includes(needle) || person.email.toLowerCase().includes(needle),
+        person.name.toLowerCase().includes(needle) ||
+        person.email.toLowerCase().includes(needle),
     )
   }, [directoryQuery.data, query])
 
   const togglePerson = (id: string) => {
-    setSelected((current) => {
-      if (mode === 'direct') return current[0] === id ? [] : [id]
-      return current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
-    })
+    setSelected((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    )
   }
 
   const selectedPeople = (directoryQuery.data ?? []).filter((person) =>
     selected.includes(person.id),
   )
 
-  const canSubmit = selected.length > 0 && (mode === 'direct' || title.trim().length >= 2)
+  const handleError = (error: unknown) => {
+    toast.error('No pudimos crear la conversación', { description: getErrorMessage(error) })
+  }
 
-  const submit = () => {
+  /** En chat directo basta con seleccionar a la persona: se crea la conversación. */
+  const startDirect = (personId: string, personName: string) => {
+    if (create.isPending) return
+
     create.mutate(
-      {
-        type: mode,
-        title: mode === 'group' ? title.trim() : undefined,
-        memberIds: selected,
-      },
+      { participantIds: [personId], type: 'direct' },
       {
         onSuccess: (conversation) => {
-          toast.success(
-            mode === 'group' ? 'Grupo creado' : 'Conversación iniciada',
-            { description: conversation.title },
-          )
+          if (!conversation) {
+            toast.error('La API no devolvió la conversación creada')
+            return
+          }
+          toast.success('Conversación iniciada', { description: personName })
           onCreated(conversation.id)
           close()
         },
-        onError: (error) => {
-          toast.error('No pudimos crear la conversación', { description: getErrorMessage(error) })
-        },
+        onError: handleError,
       },
     )
   }
+
+  const createGroup = () => {
+    if (selected.length === 0 || create.isPending) return
+
+    create.mutate(
+      {
+        participantIds: selected,
+        type: 'group',
+        ...(name.trim() ? { name: name.trim() } : {}),
+      },
+      {
+        onSuccess: (conversation) => {
+          if (!conversation) {
+            toast.error('La API no devolvió la conversación creada')
+            return
+          }
+          toast.success('Grupo creado', { description: conversation.title })
+          onCreated(conversation.id)
+          close()
+        },
+        onError: handleError,
+      },
+    )
+  }
+
+  const pendingId =
+    create.isPending && create.variables?.type === 'direct'
+      ? create.variables.participantIds[0]
+      : null
 
   return (
     <Modal
       open={open}
       onClose={close}
       title="Nueva conversación"
-      description="Elige un compañero para un chat directo o crea un grupo de trabajo."
+      description="Elige a una persona para chatear o reúne a varias en un grupo."
       icon={<UsersRound className="size-5" />}
       footer={
         <>
           <Button variant="ghost" onClick={close}>
             Cancelar
           </Button>
-          <Button
-            onClick={submit}
-            disabled={!canSubmit}
-            loading={create.isPending}
-            leftIcon={mode === 'group' ? <UsersRound className="size-4" /> : <UserRound className="size-4" />}
-          >
-            {mode === 'group' ? 'Crear grupo' : 'Iniciar chat'}
-          </Button>
+          {mode === 'group' ? (
+            <Button
+              onClick={createGroup}
+              disabled={selected.length === 0}
+              loading={create.isPending}
+              leftIcon={<UsersRound className="size-4" />}
+            >
+              Crear grupo ({selected.length})
+            </Button>
+          ) : (
+            <span className="self-center text-[11.5px] text-ink-400">
+              Selecciona una persona para iniciar el chat
+            </span>
+          )}
         </>
       }
     >
@@ -114,6 +149,7 @@ export function NewConversationDialog({ open, onClose, onCreated }: NewConversat
               onClick={() => {
                 setMode(value)
                 setSelected([])
+                create.reset()
               }}
               className={cn(
                 'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[12.5px] font-semibold transition-colors',
@@ -134,16 +170,15 @@ export function NewConversationDialog({ open, onClose, onCreated }: NewConversat
 
         {mode === 'group' ? (
           <div className="space-y-2">
-            <label htmlFor="group-title" className="text-[12.5px] font-medium text-ink-700">
-              Nombre del grupo
+            <label htmlFor="group-name" className="text-[12.5px] font-medium text-ink-700">
+              Nombre del grupo <span className="font-normal text-ink-400">(opcional)</span>
             </label>
             <Input
-              id="group-title"
-              autoFocus
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              id="group-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
               placeholder="Ej. Equipo de Soporte"
-              maxLength={48}
+              maxLength={60}
             />
           </div>
         ) : null}
@@ -154,18 +189,19 @@ export function NewConversationDialog({ open, onClose, onCreated }: NewConversat
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Buscar persona…"
+            aria-label="Buscar persona"
             className="h-10 w-full rounded-xl bg-surface pl-9 pr-3 text-[12.5px] ring-1 ring-inset ring-line transition-all placeholder:text-ink-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
 
-        {selectedPeople.length > 0 ? (
+        {mode === 'group' && selectedPeople.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {selectedPeople.map((person) => (
               <span
                 key={person.id}
                 className="inline-flex items-center gap-1 rounded-full bg-brand-50 py-0.5 pl-0.5 pr-1.5 text-[11px] font-medium text-brand-700 ring-1 ring-inset ring-brand-100"
               >
-                <Avatar name={person.name} size="xs" className="scale-75" />
+                <Avatar name={person.name} photoUrl={person.photoUrl} size="xs" className="scale-75" />
                 {person.name}
                 <button
                   type="button"
@@ -196,45 +232,69 @@ export function NewConversationDialog({ open, onClose, onCreated }: NewConversat
           ) : directoryQuery.isError ? (
             <EmptyState
               icon={<UserRound className="size-5" />}
-              title="No pudimos cargar los contactos"
-              description="Cierra el diálogo e inténtalo de nuevo."
+              title="No pudimos cargar los usuarios"
+              description="Revisa tu conexión e inténtalo de nuevo."
+              action={
+                <button
+                  type="button"
+                  onClick={() => void directoryQuery.refetch()}
+                  className="rounded-xl bg-surface px-4 py-2 text-[12.5px] font-semibold text-ink-700 ring-1 ring-line transition-colors hover:bg-white"
+                >
+                  Reintentar
+                </button>
+              }
             />
           ) : people.length === 0 ? (
             <EmptyState
               icon={<Search className="size-5" />}
               title="Sin resultados"
-              description={`No encontramos a nadie con “${query}”.`}
+              description={
+                query
+                  ? `No encontramos a nadie con “${query}”.`
+                  : 'No hay otros usuarios disponibles para conversar.'
+              }
             />
           ) : (
             people.map((person) => {
               const active = selected.includes(person.id)
+              const loading = pendingId === person.id
+
               return (
                 <button
                   key={person.id}
                   type="button"
-                  onClick={() => togglePerson(person.id)}
+                  onClick={() =>
+                    mode === 'direct'
+                      ? startDirect(person.id, person.name)
+                      : togglePerson(person.id)
+                  }
+                  disabled={create.isPending}
                   className={cn(
-                    'flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors',
+                    'flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors disabled:cursor-progress',
                     active ? 'bg-brand-50/70' : 'hover:bg-surface',
                   )}
                 >
-                  <Avatar name={person.name} accent={person.accent} size="sm" presence={person.presence} />
+                  <Avatar name={person.name} photoUrl={person.photoUrl} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[12.5px] font-semibold text-ink-900">
                       {person.name}
                     </p>
                     <p className="truncate text-[11px] text-ink-400">{person.email}</p>
                   </div>
-                  <span
-                    className={cn(
-                      'grid size-5 shrink-0 place-items-center rounded-md border transition-all',
-                      active
-                        ? 'border-brand-600 bg-brand-600 text-white'
-                        : 'border-line-strong bg-white text-transparent',
-                    )}
-                  >
-                    <Check className="size-3" />
-                  </span>
+                  {mode === 'group' ? (
+                    <span
+                      className={cn(
+                        'grid size-5 shrink-0 place-items-center rounded-md border transition-all',
+                        active
+                          ? 'border-brand-600 bg-brand-600 text-white'
+                          : 'border-line-strong bg-white text-transparent',
+                      )}
+                    >
+                      <Check className="size-3" />
+                    </span>
+                  ) : loading ? (
+                    <span className="size-4 shrink-0 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
+                  ) : null}
                 </button>
               )
             })
