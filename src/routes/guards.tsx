@@ -1,7 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 
-import { useSessionUser } from '@/features/auth/hooks'
 import {
   isSessionExpired,
   useIsAuthenticated,
@@ -13,8 +12,6 @@ import {
  * **and** the user profile are stored in the session.
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  useSessionUser()
-
   const isAuthenticated = useIsAuthenticated()
   const location = useLocation()
   const accessToken = useSessionStore((state) => state.accessToken)

@@ -1,7 +1,5 @@
-import { mockRequest } from '@/mocks/api'
-import type { AuthUser } from '@/types'
-
 import { SESSION_STORAGE_KEY } from '../constants'
+import { readRawSession } from '../session-storage'
 import { ApiError } from './errors'
 
 /* -------------------------------------------------------------------------- */
@@ -13,21 +11,14 @@ const trimBase = (value: string | undefined) => (value ?? '').trim().replace(/\/
 /**
  * Base de todas las peticiones.
  *
- * - `.env.development` → `VITE_BASE_API_URL=http://localhost:4000/api` (`npm run dev`)
- * - `.env.production`  → `VITE_BASE_API_URL=https://api.nexlang.io/v1` (`npm run build`)
+ * - `.env.development` → `VITE_BASE_API_URL=http://localhost:3000` (`npm run dev`)
+ * - `.env.production`  → `VITE_BASE_API_URL=https://api.nexlang.io` (`npm run build`)
  *
  * Se mantiene `VITE_API_BASE_URL` como alias por compatibilidad.
  */
 export const API_BASE_URL = trimBase(
   import.meta.env.VITE_BASE_API_URL ?? import.meta.env.VITE_API_BASE_URL,
 )
-
-/**
- * Mientras no exista un backend real (o `VITE_USE_MOCK_API` no sea `false`),
- * las peticiones se resuelven con el backend demo de `src/mocks`.
- */
-export const IS_DEMO_API =
-  import.meta.env.VITE_USE_MOCK_API !== 'false' || API_BASE_URL.length === 0
 
 /** Entorno activo: `development`, `staging`, `production`… */
 export const APP_ENV = import.meta.env.VITE_ENVIRONMENT ?? import.meta.env.MODE
@@ -41,7 +32,7 @@ export const DEBUG_REQUESTS =
 
 if (import.meta.env.DEV) {
   console.info(
-    `[api] entorno=${APP_ENV} · base=${IS_DEMO_API ? 'demo (local)' : API_BASE_URL} · timeout=${REQUEST_TIMEOUT_MS}ms`,
+    `[api] entorno=${APP_ENV} · base=${API_BASE_URL || '(sin configurar)'} · timeout=${REQUEST_TIMEOUT_MS}ms`,
   )
 }
 
@@ -70,18 +61,18 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
 interface PersistedSession {
   state?: {
     accessToken?: string | null
+    tokenType?: string | null
     refreshToken?: string | null
     expiresAt?: string | null
-    user?: AuthUser | null
   }
   version?: number
 }
 
+/** Lee el snapshot persistido (sessionStorage primero, luego localStorage). */
 function readPersistedSession(): PersistedSession['state'] | null {
-  if (typeof window === 'undefined') return null
+  const raw = readRawSession(SESSION_STORAGE_KEY)
+  if (!raw) return null
   try {
-    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY)
-    if (!raw) return null
     const parsed = JSON.parse(raw) as PersistedSession
     return parsed?.state ?? null
   } catch {
@@ -91,7 +82,7 @@ function readPersistedSession(): PersistedSession['state'] | null {
 
 /**
  * Token guardado: primero consulta el store en memoria y, si aún no existe,
- * recupera la sesión persistida en `localStorage`.
+ * recupera la sesión persistida.
  */
 export function getStoredAccessToken(): string | null {
   try {
@@ -101,6 +92,19 @@ export function getStoredAccessToken(): string | null {
     // el provider puede fallar antes de hidratar: usamos el fallback
   }
   return readPersistedSession()?.accessToken ?? null
+}
+
+/** Esquema del token devuelto por la API (`Bearer` por defecto). */
+export function getStoredTokenType(): string {
+  const tokenType = readPersistedSession()?.tokenType
+  return tokenType && tokenType.trim() ? tokenType.trim() : 'Bearer'
+}
+
+/** Cabecera `Authorization` completa, o `null` si no hay sesión. */
+export function getStoredAuthorization(): string | null {
+  const token = getStoredAccessToken()
+  if (!token) return null
+  return `${getStoredTokenType()} ${token}`
 }
 
 export function getStoredRefreshToken(): string | null {
@@ -180,7 +184,6 @@ function extractError(payload: unknown, status: number) {
  * - Usa `VITE_BASE_API_URL` como base de la ruta.
  * - Envía `Authorization: Bearer <token>` si hay un token guardado.
  * - Normaliza errores en `ApiError` y cierra la sesión ante un 401.
- * - Con el modo demo activo resuelve contra `src/mocks` (sin red).
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const {
@@ -193,15 +196,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     query,
   } = options
 
-  const token = auth ? getStoredAccessToken() : null
-
-  if (IS_DEMO_API) {
-    if (DEBUG_REQUESTS) {
-      console.debug(`[api:demo] ${method} ${path}`, { auth: Boolean(token) })
-    }
-    return mockRequest<T>(path, { method, body, signal, token })
-  }
-
+  const authorization = auth ? getStoredAuthorization() : null
   const url = buildUrl(path, query)
   const controller = new AbortController()
   const abortFromCaller = () => controller.abort()
@@ -214,7 +209,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   try {
     if (DEBUG_REQUESTS) {
-      console.debug(`[api] ${method} ${url}`, { auth: Boolean(token) })
+      console.debug(`[api] ${method} ${url}`, { auth: Boolean(authorization) })
     }
 
     const response = await fetch(url, {
@@ -224,7 +219,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       headers: {
         Accept: 'application/json',
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(authorization ? { Authorization: authorization } : {}),
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),

@@ -29,12 +29,6 @@ export function formatDayLabel(iso: string, now = new Date()) {
   return capitalize(format(date, "EEEE d 'de' MMMM", { locale: es }))
 }
 
-export function formatSessionLabel(index: number, iso: string) {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return ''
-  return `Sesión ${String(index).padStart(2, '0')} · ${format(date, 'd MMM yyyy', { locale: es })}`
-}
-
 export function formatDuration(totalSeconds: number) {
   const seconds = Math.max(0, Math.round(totalSeconds))
   const hours = Math.floor(seconds / 3600)
@@ -61,35 +55,7 @@ export function firstName(name: string) {
   return name.trim().split(/\s+/)[0] ?? name
 }
 
-export function maskEmail(email: string) {
-  const [local, domain] = email.split('@')
-  if (!local || !domain) return email
-  const visible = local.slice(0, Math.min(2, local.length))
-  return `${visible}${'*'.repeat(Math.max(2, local.length - visible.length))}@${domain}`
-}
-
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i
-export const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/i
-
-export function isEmail(value: string) {
-  return EMAIL_PATTERN.test(value.trim())
-}
-
-/** Accepts `someone@company.com` or a Nexlang username such as `devon.lane`. */
-export function normalizeIdentifier(raw: string) {
-  const value = raw.trim().toLowerCase()
-  if (isEmail(value)) {
-    return { kind: 'email' as const, value, email: value, username: value.split('@')[0] }
-  }
-  return { kind: 'username' as const, value, email: `${value}@nexlang.io`, username: value }
-}
-
-export function sleep(ms: number) {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
-
 const ACCENTS = [
   'from-brand-500 to-aqua-400',
   'from-violet-500 to-fuchsia-400',
@@ -107,8 +73,4 @@ export function accentFor(seed: string) {
     hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
   }
   return ACCENTS[hash % ACCENTS.length]
-}
-
-export function pluralize(count: number, singular: string, plural: string) {
-  return count === 1 ? singular : plural
 }

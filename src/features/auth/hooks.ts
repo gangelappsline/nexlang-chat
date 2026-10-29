@@ -1,57 +1,37 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 
-import { queryClient } from '@/lib/query-client'
-import type { AuthUser } from '@/types'
-
-import { authApi } from './api'
+import { authService } from './api'
 import { useSessionStore } from './session'
 
-export const authKeys = {
-  me: ['auth', 'me'] as const,
-}
-
-export function useRequestCode() {
+export function useRequestLoginCode() {
   return useMutation({
-    mutationFn: (identifier: string) => authApi.requestCode(identifier),
+    mutationFn: (email: string) => authService.requestLoginCode(email),
   })
 }
 
-export function useResendCode() {
+/** Reenviar el código usa el mismo endpoint del paso 1. */
+export function useResendLoginCode() {
   return useMutation({
-    mutationFn: (challengeId: string) => authApi.resendCode(challengeId),
+    mutationFn: (email: string) => authService.requestLoginCode(email),
   })
 }
 
-export function useVerifyCode() {
+export function useVerifyLoginCode() {
   const setSession = useSessionStore((state) => state.setSession)
 
   return useMutation({
-    mutationFn: ({ challengeId, code }: { challengeId: string; code: string }) =>
-      authApi.verifyCode(challengeId, code),
-    onSuccess: (session) => {
-      setSession(session)
-      queryClient.setQueryData(authKeys.me, session.user)
+    mutationFn: ({
+      email,
+      code,
+    }: {
+      email: string
+      code: string
+      remember?: boolean
+    }) => authService.verifyLoginCode(email, code),
+    onSuccess: (session, variables) => {
+      // `remember` decide si la sesión vive en la pestaña o en el navegador.
+      setSession(session, { remember: variables.remember })
     },
-  })
-}
-
-/** Validates the stored token against the API on boot. */
-export function useSessionUser() {
-  const user = useSessionStore((state) => state.user)
-  const token = useSessionStore((state) => state.accessToken)
-  const updateUser = useSessionStore((state) => state.updateUser)
-
-  return useQuery<AuthUser>({
-    queryKey: authKeys.me,
-    queryFn: async () => {
-      const fresh = await authApi.me()
-      updateUser(fresh)
-      return fresh
-    },
-    enabled: Boolean(token && user),
-    staleTime: 5 * 60_000,
-    retry: false,
-    initialData: user ?? undefined,
   })
 }
 
@@ -60,7 +40,7 @@ export function useLogout() {
   const client = useQueryClient()
 
   return useMutation({
-    mutationFn: () => authApi.logout(),
+    mutationFn: () => authService.logout(),
     onSettled: () => {
       clearSession()
       client.clear()

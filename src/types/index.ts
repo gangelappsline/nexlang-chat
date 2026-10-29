@@ -24,20 +24,12 @@ export interface AuthUser {
 
 export interface SessionPayload {
   accessToken: string
-  refreshToken: string
-  expiresAt: string
+  /** Esquema del token devuelto por la API (`Bearer` por defecto). */
+  tokenType: string
+  refreshToken: string | null
+  /** `null` cuando la API no informa caducidad (tokens tipo Sanctum). */
+  expiresAt: string | null
   user: AuthUser
-}
-
-export interface CodeChallenge {
-  challengeId: string
-  identifier: string
-  /** Masked destination, e.g. d***e@gmail.com */
-  emailHint: string
-  expiresAt: string
-  resendAfterSeconds: number
-  /** Only present while the app runs with the built-in demo API. */
-  demoCode?: string
 }
 
 export interface ConversationStats {

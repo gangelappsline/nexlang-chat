@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api/client'
+import { API_PATHS } from '@/lib/api/endpoints'
 import type {
   Conversation,
   ConversationDetail,
@@ -30,22 +31,22 @@ export interface UpdateConversationPayload {
 }
 
 export const chatApi = {
-  list: () => apiClient.get<Conversation[]>('/conversations'),
+  list: () => apiClient.get<Conversation[]>(API_PATHS.conversations),
 
-  detail: (id: string) => apiClient.get<ConversationDetail>(`/conversations/${id}`),
+  detail: (id: string) => apiClient.get<ConversationDetail>(`${API_PATHS.conversations}/${id}`),
 
-  messages: (id: string) => apiClient.get<Message[]>(`/conversations/${id}/messages`),
+  messages: (id: string) => apiClient.get<Message[]>(`${API_PATHS.conversations}/${id}/messages`),
 
   send: (id: string, payload: SendMessagePayload) =>
-    apiClient.post<Message>(`/conversations/${id}/messages`, payload),
+    apiClient.post<Message>(`${API_PATHS.conversations}/${id}/messages`, payload),
 
-  markRead: (id: string) => apiClient.post<Conversation>(`/conversations/${id}/read`),
+  markRead: (id: string) => apiClient.post<Conversation>(`${API_PATHS.conversations}/${id}/read`),
 
   update: (id: string, payload: UpdateConversationPayload) =>
-    apiClient.patch<Conversation>(`/conversations/${id}`, payload),
+    apiClient.patch<Conversation>(`${API_PATHS.conversations}/${id}`, payload),
 
   create: (payload: CreateConversationPayload) =>
-    apiClient.post<Conversation>('/conversations', payload),
+    apiClient.post<Conversation>(API_PATHS.conversations, payload),
 
-  directory: () => apiClient.get<DirectoryPerson[]>('/directory'),
+  directory: () => apiClient.get<DirectoryPerson[]>(API_PATHS.directory),
 }

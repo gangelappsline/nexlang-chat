@@ -1,33 +1,36 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { AlertCircle, ArrowLeft, ArrowRight, Copy, Loader2, MailCheck, RotateCw, Wand2 } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ArrowRight, Loader2, MailCheck, RotateCw } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
-import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { getErrorMessage, getFieldErrors } from '@/lib/api/errors'
-import type { CodeChallenge } from '@/types'
+import { cn } from '@/lib/cn'
 
 import { codeSchema, type CodeFormValues } from '../schemas'
 import { OtpInput } from './otp-input'
 
 interface VerificationStepProps {
-  challenge: CodeChallenge
+  email: string
   loading: boolean
   error?: unknown
   seconds: number
   resending: boolean
+  remember: boolean
+  onRememberChange: (remember: boolean) => void
   onVerify: (code: string) => void
   onResend: () => void
   onBack: () => void
 }
 
 export function VerificationStep({
-  challenge,
+  email,
   loading,
   error,
   seconds,
   resending,
+  remember,
+  onRememberChange,
   onVerify,
   onResend,
   onBack,
@@ -61,16 +64,6 @@ export function VerificationStep({
   const serverError = getFieldErrors(error)?.code?.[0] ?? (error ? getErrorMessage(error) : undefined)
   const resendLabel = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 
-  const copyCode = async () => {
-    if (!challenge.demoCode) return
-    try {
-      await navigator.clipboard.writeText(challenge.demoCode)
-      toast.success('Código copiado al portapapeles')
-    } catch {
-      toast.error('No se pudo copiar el código')
-    }
-  }
-
   return (
     <div>
       <button
@@ -79,7 +72,7 @@ export function VerificationStep({
         className="group -ml-1 inline-flex items-center gap-1.5 rounded-lg px-1 py-1 text-[12.5px] font-medium text-ink-500 transition-colors hover:text-ink-900"
       >
         <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
-        Cambiar correo o usuario
+        Cambiar correo
       </button>
 
       <div className="mt-5 grid size-12 place-items-center rounded-2xl bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-100">
@@ -91,8 +84,8 @@ export function VerificationStep({
       </h1>
       <p className="mt-2.5 text-[14px] leading-relaxed text-ink-500">
         Enviamos un código de 6 dígitos a{' '}
-        <span className="font-semibold text-ink-800">{challenge.emailHint}</span>. Ingrésalo para
-        entrar a tu espacio de trabajo.
+        <span className="font-semibold text-ink-800">{email}</span>. Ingrésalo para entrar a tu
+        espacio de trabajo.
       </p>
 
       <form
@@ -118,41 +111,35 @@ export function VerificationStep({
           </p>
         ) : null}
 
-        {challenge.demoCode ? (
-          <div className="rounded-xl border border-dashed border-brand-200 bg-brand-50/70 p-3">
-            <div className="flex items-start gap-2.5">
-              <Wand2 className="mt-0.5 size-4 shrink-0 text-brand-500" />
-              <div className="min-w-0 flex-1">
-                <p className="text-[11.5px] font-semibold text-brand-800">
-                  Modo demostración · no se envían correos reales
-                </p>
-                <p className="mt-1 flex items-center gap-2 text-[12px] text-brand-700/80">
-                  Código:
-                  <span className="font-mono text-[13px] font-bold tracking-[0.25em] text-brand-900">
-                    {challenge.demoCode}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={copyCode}
-                    aria-label="Copiar código"
-                    className="grid size-6 place-items-center rounded-md text-brand-500 transition-colors hover:bg-white hover:text-brand-700"
-                  >
-                    <Copy className="size-3.5" />
-                  </button>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() =>
-                  setValue('code', challenge.demoCode ?? '', { shouldValidate: true })
-                }
-                className="shrink-0 rounded-lg bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-brand-700 ring-1 ring-brand-200 transition-colors hover:bg-brand-50"
-              >
-                Autocompletar
-              </button>
-            </div>
+        <div className="flex items-start justify-between gap-3 rounded-xl bg-surface px-3.5 py-3 ring-1 ring-inset ring-line">
+          <div className="min-w-0">
+            <p className="text-[12.5px] font-medium text-ink-700">Mantener la sesión</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-ink-400">
+              {remember
+                ? 'La sesión se conservará aunque cierres el navegador.'
+                : 'Por seguridad, la sesión se cierra al cerrar la pestaña.'}
+            </p>
           </div>
-        ) : null}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={remember}
+            aria-label="Mantener la sesión en este dispositivo"
+            onClick={() => onRememberChange(!remember)}
+            className={cn(
+              'relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
+              remember ? 'bg-brand-600' : 'bg-ink-300',
+            )}
+          >
+            <span
+              className={cn(
+                'absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-150',
+                remember ? 'translate-x-[22px]' : 'translate-x-0.5',
+              )}
+            />
+          </button>
+        </div>
 
         <Button
           type="submit"
@@ -187,8 +174,8 @@ export function VerificationStep({
       </div>
 
       <p className="mt-6 border-t border-line pt-5 text-[12px] leading-relaxed text-ink-400">
-        Por seguridad, el código caduca en 10 minutos y solo puede usarse una vez. Si no solicitaste
-        este acceso, ignora este mensaje.
+        Por seguridad, el código caduca a los pocos minutos y solo puede usarse una vez. Si no
+        solicitaste este acceso, ignora este mensaje.
       </p>
     </div>
   )

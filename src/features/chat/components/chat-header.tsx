@@ -27,7 +27,6 @@ import { channelLabels, onlineMembers, statusMeta } from '../utils'
 
 interface ChatHeaderProps {
   conversation: Conversation
-  typingName?: string
   infoOpen: boolean
   onBack: () => void
   onToggleInfo: () => void
@@ -35,7 +34,6 @@ interface ChatHeaderProps {
 
 export function ChatHeader({
   conversation,
-  typingName,
   infoOpen,
   onBack,
   onToggleInfo,
@@ -100,20 +98,7 @@ export function ChatHeader({
         </div>
 
         <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px]">
-          {typingName ? (
-            <span className="flex items-center gap-1.5 font-medium text-brand-600">
-              <span className="flex items-center gap-0.5">
-                {[0, 1, 2].map((dot) => (
-                  <span
-                    key={dot}
-                    className="size-1 animate-bounce rounded-full bg-brand-500"
-                    style={{ animationDelay: `${dot * 120}ms` }}
-                  />
-                ))}
-              </span>
-              escribiendo…
-            </span>
-          ) : isGroup ? (
+          {isGroup ? (
             <>
               <UsersRound className="size-3 text-ink-400" />
               <span className="truncate text-ink-500">

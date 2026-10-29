@@ -5,8 +5,6 @@ interface ImportMetaEnv {
   readonly VITE_BASE_API_URL?: string
   /** Alias heredado de `VITE_BASE_API_URL`. */
   readonly VITE_API_BASE_URL?: string
-  /** `"false"` desactiva el backend demo. */
-  readonly VITE_USE_MOCK_API?: string
   /** Entorno lógico: development | staging | production. */
   readonly VITE_ENVIRONMENT?: string
   readonly VITE_APP_NAME?: string

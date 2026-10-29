@@ -3,11 +3,11 @@
 Aplicación de mensajería para equipos inspirada en Slack y Microsoft Teams: chats directos,
 grupos de trabajo, bandeja de conversaciones con clientes y panel de detalles del visitante.
 
-El acceso funciona con **código de un solo uso enviado al correo** (passwordless) y el panel
-solo se renderiza cuando existe un **token válido + el perfil del usuario** en la sesión.
+El acceso funciona con **código de un solo uso enviado al correo** y el panel solo se renderiza
+cuando existe un **token válido + el perfil del usuario** en la sesión.
 
-> La app incluye un **backend demo** completo (en `src/mocks`) con latencia realista, persistencia
-> en `localStorage` y respuestas automáticas. No necesitas servidor para probarla.
+> Esta versión **no incluye datos ni backend de demostración**: todas las peticiones van a la
+> API configurada en `VITE_BASE_API_URL`.
 
 ---
 
@@ -33,35 +33,19 @@ solo se renderiza cuando existe un **token válido + el perfil del usuario** en 
 
 ```bash
 npm install
-npm run dev      # development · http://localhost:5176
+cp .env.example .env.local   # ajusta VITE_BASE_API_URL
+npm run dev                  # http://localhost:5176
 ```
 
-Otros scripts (cada uno carga su propio archivo `.env`):
-
-| Comando | Modo de Vite | Variables de entorno |
+| Comando | Modo de Vite | Variables que carga |
 | --- | --- | --- |
 | `npm run dev` | `development` | `.env` + `.env.development` |
 | `npm run dev:staging` | `staging` | `.env` + `.env.staging` |
 | `npm run build` | `production` | `.env` + `.env.production` |
 | `npm run build:staging` | `staging` | `.env` + `.env.staging` |
-| `npm run preview` | sirve `dist/` | — (el build ya las incluyó) |
+| `npm run preview` | sirve `dist/` | — (ya vienen compiladas) |
 | `npm run lint` | ESLint (reglas del React Compiler) | — |
 | `npm run typecheck` | `tsc -b` | — |
-
-### Cómo entrar (modo demo)
-
-1. Escribe cualquier correo o usuario (o pulsa **Usar demo** → `devon.lane@nexlang.io`).
-2. La app muestra el código de 6 dígitos en una tarjeta **Modo demostración** (no se envían
-   correos reales). También puedes pulsar **Autocompletar**.
-3. Al verificarlo se guarda la sesión y entras a la bandeja de entrada.
-
-Los datos de la demo (conversaciones, mensajes, notas, etiquetas) se guardan en
-`localStorage` bajo `nexlang.demo.db.v1`. Para reiniciar todo:
-
-```js
-localStorage.removeItem('nexlang.demo.db.v1') // datos
-localStorage.removeItem('nexlang.session')    // sesión
-```
 
 ---
 
@@ -79,79 +63,122 @@ Vite carga los archivos en cascada; **el último gana**:
 | `.env.development` | ✅ | `npm run dev` |
 | `.env.staging` | ✅ | `npm run dev:staging`, `npm run build:staging` |
 | `.env.production` | ✅ | `npm run build` |
-| `.env.example` | ✅ | plantilla documentada para copiar |
+| `.env.example` | ✅ | plantilla documentada |
 | `.env.local` / `.env.*.local` | ❌ (gitignored) | secretos u overrides personales |
-
-Variables disponibles:
 
 | Variable | Ejemplo | Uso |
 | --- | --- | --- |
-| `VITE_BASE_API_URL` | `https://api.nexlang.io/v1` | **base de todas las peticiones** (sin barra final) |
-| `VITE_USE_MOCK_API` | `true` | `false` desactiva el backend demo y usa la API real |
-| `VITE_ENVIRONMENT` | `production` | se muestra en el menú de cuenta |
+| `VITE_BASE_API_URL` | `https://api.nexlang.io` | **base de todas las peticiones** (sin barra final) |
+| `VITE_ENVIRONMENT` | `production` | entorno lógico que se muestra en el menú de cuenta |
 | `VITE_REQUEST_TIMEOUT_MS` | `20000` | timeout por petición |
 | `VITE_DEBUG_REQUESTS` | `false` | loguea método + URL en consola |
 | `VITE_APP_NAME` | `Nexlang Chat` | nombre visible de la app |
 
 > Solo las variables con prefijo `VITE_` llegan al navegador: **nunca guardes secretos** en ellas.
-> El modo demo se mantiene activo en `.env.production` para que el build funcione sin backend;
-> cámbialo a `false` cuando la API real esté desplegada.
-
-Puedes abrir el **menú de cuenta** (avatar del rail o de la bandeja) para ver el entorno y el
-estado de la API (`API demo` / `API real`) que quedaron compilados.
 
 ---
+
+## Autenticación
+
+Flujo sin contraseña con dos endpoints:
+
+| Paso | Petición | Resultado en la app |
+| --- | --- | --- |
+| 1 · solicitar código | `POST ${VITE_BASE_API_URL}/v1/chat/login-code` · `{ "email": "ana@empresa.com" }` | si responde OK se muestra el formulario de 6 dígitos |
+| 2 · validar código | `POST ${VITE_BASE_API_URL}/v1/chat/login-validation` · `{ "email": "ana@empresa.com", "code": "123456" }` | guarda la sesión y abre el panel |
+
+El reenvío del código vuelve a llamar al **paso 1**. Las rutas viven en
+`src/lib/api/endpoints.ts`.
+
+### Respuesta esperada del paso 2
+
+```json
+{
+  "user": {
+    "data": {
+      "id": 42,
+      "name": "Ana Pérez",
+      "email": "ana@empresa.com",
+      "username": "ana.perez",
+      "avatar_url": null
+    }
+  },
+  "access_token": "42|Xr7jh...",
+  "token_type": "Bearer"
+}
+```
+
+El servicio (`src/features/auth/api.ts`) normaliza la respuesta y tolera variantes:
+
+* token en `access_token` / `accessToken` / `token` / `jwt` / `bearer`;
+* `token_type` se usa tal cual en la cabecera `Authorization` (por defecto `Bearer`);
+* `user` puede venir como `UserResource` (anidado en `data`), en `usuario`, `profile` o
+  `account`; si faltan campos se completan con el correo del login;
+* `expiresAt` es opcional: se toma de `expires_at` o del `exp` del JWT. Con tokens tipo Sanctum
+  (sin caducidad) se guarda `null` y la validez se confirma con la API (un `401` cierra sesión);
+* si el paso 2 no devuelve ningún token se lanza un `ApiError` (`502 invalid_response`) y el
+  formulario muestra el mensaje.
+
+### Sesión y almacenamiento seguro
+
+* `Zustand` + `persist` guarda **token, tipo de token, refresh token y perfil** en
+  `nexlang.session`.
+* Por defecto la sesión vive en **`sessionStorage`**: se borra al cerrar la pestaña.
+  El usuario puede activar **“Mantener la sesión”** en el paso del código para persistirla en
+  `localStorage` durante más tiempo.
+* Nunca se guardan contraseñas ni códigos; el token no se imprime en consola y en la UI solo se
+  muestra el correo del usuario.
+* Al cerrar sesión se limpian ambos almacenes, el estado de TanStack Query y se llama a
+  `POST /v1/chat/logout`.
+* `RequireAuth` (`src/routes/guards.tsx`) bloquea `/` y `/c/:id` si falta el token o el usuario,
+  o si la sesión caducó; redirige a `/login` conservando la ruta de origen.
+* Cualquier `401` de la API limpia la sesión y la caché automáticamente.
+* El cliente envía `Authorization: <token_type> <access_token>` en todas las peticiones
+  autenticadas (login y validación van con `{ auth: false }`).
 
 ## Cliente de API
 
-Todo el tráfico sale por un único archivo: **`src/lib/api/client.ts`**.
+Todo el tráfico sale por **`src/lib/api/client.ts`** y las rutas viven en
+**`src/lib/api/endpoints.ts`**.
 
 ```ts
 import { apiClient } from '@/lib/api/client'
+import { API_PATHS } from '@/lib/api/endpoints'
 
-const conversations = await apiClient.get<Conversation[]>('/conversations')
-
-await apiClient.post('/conversations/c-1/messages', { body: 'Hola' })
-
+const conversations = await apiClient.get<Conversation[]>(API_PATHS.conversations)
+await apiClient.post(API_PATHS.conversations, { type: 'direct', memberIds: [2] })
 await apiClient.get('/reports', { query: { page: 2, status: 'open' } })
 ```
 
-Qué resuelve:
-
-* **Base de ruta** desde `VITE_BASE_API_URL`: `request('/auth/me')` → `https://api.…/v1/auth/me`
-  (acepta rutas absolutas `https://…` cuando quieres saltarte la base).
-* **Bearer token automático**: si hay sesión guardada agrega
-  `Authorization: Bearer <accessToken>`; se puede desactivar por petición con `{ auth: false }`
-  (lo usan los endpoints de login).
-* El token se lee del store en memoria (`Zustand`) y, si aún no está hidratado, del
-  `localStorage` (`nexlang.session`), así también se envía al recargar la página.
+* **Base** `VITE_BASE_API_URL` + ruta (acepta URLs absolutas si necesitas otra base).
+* **Bearer token automático**: agrega `Authorization: <token_type> <accessToken>` (normalmente
+  `Bearer`) cuando hay sesión guardada; se puede desactivar con `{ auth: false }` (lo usan los
+  endpoints de login). El token se lee del store en memoria y, como respaldo, del almacén de
+  sesión (`sessionStorage` o `localStorage`), así se envía incluso tras recargar.
 * **Timeout** cancelable (`VITE_REQUEST_TIMEOUT_MS`) combinado con el `AbortSignal` de TanStack Query.
 * **Errores normalizados** en `ApiError` (`status`, `code`, `fieldErrors`) y cierre de sesión
   automático ante un `401`.
-* **Modo demo**: con `VITE_USE_MOCK_API=true` las mismas llamadas se resuelven contra `src/mocks`
-  sin hacer red, de modo que los componentes no cambian entre demo y API real.
 
-Los módulos de cada feature (`features/auth/api.ts`, `features/chat/api.ts`) solo declaran rutas
-y tipos; la sesión se conecta con `setAuthTokenProvider(...)` en `features/auth/session.ts`.
+### Endpoints utilizados
 
----
+| Método | Ruta | Uso |
+| --- | --- | --- |
+| `POST` | `/v1/chat/login-code` | solicitar el código (`{ email }`) |
+| `POST` | `/v1/chat/login-validation` | validar el código (`{ email, code }`) |
+| `POST` | `/v1/chat/logout` | cerrar sesión en el servidor |
+| `GET` | `/v1/chat/conversations` | bandeja de entrada |
+| `POST` | `/v1/chat/conversations` | crear chat directo o grupo |
+| `GET` | `/v1/chat/conversations/:id` | conversación + mensajes |
+| `PATCH` | `/v1/chat/conversations/:id` | fijar, silenciar, archivar, notas, etiquetas |
+| `GET` | `/v1/chat/conversations/:id/messages` | historial |
+| `POST` | `/v1/chat/conversations/:id/messages` | enviar mensaje (`{ body, attachment? }`) |
+| `POST` | `/v1/chat/conversations/:id/read` | marcar como leída |
+| `GET` | `/v1/chat/directory` | contactos para nuevos chats/grupos |
 
-## Flujo de autenticación
+Los errores se esperan como `{ message, code, errors?: { campo: string[] } }`; los mensajes de
+validación se muestran automáticamente en los formularios.
 
-```
-/ (panel protegido)  ──sin token+usuario──▶  /login
-/login
-  ├─ paso 1  POST /auth/request-code   { identifier }        → { challengeId, emailHint, expiresAt, demoCode? }
-  ├─ paso 2  POST /auth/verify-code    { challengeId, code } → { accessToken, refreshToken, expiresAt, user }
-  └─          POST /auth/resend-code   { challengeId }
-```
-
-* El código caduca a los **10 minutos**, admite **5 intentos** y se invalida al reenviarse.
-* `RequireAuth` (`src/routes/guards.tsx`) bloquea el panel si falta el token o el usuario,
-  o si `expiresAt` ya pasó; en ese caso limpia la sesión y redirige a `/login` conservando
-  la ruta de origen para volver después del login.
-* `RedirectIfAuthenticated` evita que un usuario con sesión vea el login.
-* Ante un `401` de la API, el cliente HTTP limpia la sesión y vacía la caché de TanStack Query.
+Si las rutas de tu backend cambian, solo hay que editar `src/lib/api/endpoints.ts`.
 
 ---
 
@@ -161,7 +188,8 @@ y tipos; la sesión se conecta con `setAuthTokenProvider(...)` en `features/auth
 src/
 ├── lib/
 │   ├── api/
-│   │   ├── client.ts     base URL, bearer token, timeout, errores y modo demo
+│   │   ├── client.ts     base URL, bearer token, timeout y errores
+│   │   ├── endpoints.ts  rutas de la API centralizadas
 │   │   └── errors.ts     ApiError + helpers
 │   ├── constants.ts      claves de storage compartidas
 │   ├── cn.ts · format.ts · query-client.ts · use-countdown.ts · use-media-query.ts
@@ -169,72 +197,32 @@ src/
 │   ├── brand/            logo Nexlang (marca y logotipo, claro/oscuro)
 │   └── ui/               Button, Input, Avatar, Modal, Dropdown, Badge, Skeletons…
 ├── features/
-│   ├── auth/             api, hooks, esquemas Zod, store de sesión y pantalla de login
-│   └── chat/             api, hooks (queries/mutations/optimistic), componentes y página
-├── mocks/                backend demo: seed, base de datos, router y bus de eventos
+│   ├── auth/             servicio login-code / login-validation, sesión y pantalla
+│   └── chat/             api, hooks (queries/mutations con optimistic), componentes y página
 ├── routes/               guards de sesión
 ├── types/                modelos compartidos
 ├── App.tsx               providers + router + toasts
-└── index.css             Tailwind v4 + design tokens (colores de marca, sombras, animaciones)
+└── index.css             Tailwind v4 + design tokens
 ```
 
 ### Pantallas
 
-* **Login** (`/login`): layout partido con panel de marca, formulario de correo/usuario y
-  segundo paso con OTP de 6 dígitos (autoadvance, pegado, reenvío con cuenta atrás).
+* **Login** (`/login`): layout partido con panel de marca, correo electrónico y segundo paso con
+  OTP de 6 dígitos (autoadvance, pegado, reenvío con cuenta atrás).
 * **Panel** (`/`, `/c/:conversationId`): rail de navegación, bandeja con filtros
   (todos / no leídos / grupos / archivados), búsqueda (`⌘K`), orden, lista de conversaciones,
   hilo de mensajes con burbujas agrupadas, composer (emojis, adjuntos, respuestas rápidas)
   y panel derecho con resumen del usuario, mapa, etiquetas, notas y archivos.
 * **Nueva conversación**: chats directos o grupos, con búsqueda de contactos y multi-selección.
 
----
-
-## Conectar un backend real
-
-1. Copia la plantilla y ajusta los valores:
-
-   ```bash
-   cp .env.example .env.local
-   ```
-
-   ```dotenv
-   VITE_BASE_API_URL=https://api.tu-dominio.com/v1
-   VITE_USE_MOCK_API=false
-   ```
-
-2. Reinicia el dev server (Vite no recarga variables en caliente).
-
-Endpoints esperados:
-
-| Método | Ruta | Respuesta |
-| --- | --- | --- |
-| `POST` | `/auth/request-code` | `{ challengeId, identifier, emailHint, expiresAt, resendAfterSeconds, demoCode? }` |
-| `POST` | `/auth/resend-code` | igual que `request-code` |
-| `POST` | `/auth/verify-code` | `{ accessToken, refreshToken, expiresAt, user }` |
-| `GET` | `/auth/me` | `User` |
-| `POST` | `/auth/logout` | `{ ok: true }` |
-| `GET` | `/conversations` | `Conversation[]` |
-| `POST` | `/conversations` | `{ type, title?, memberIds }` → `Conversation` |
-| `GET` | `/conversations/:id` | `{ conversation, messages }` |
-| `PATCH` | `/conversations/:id` | `Conversation` |
-| `GET` | `/conversations/:id/messages` | `Message[]` |
-| `POST` | `/conversations/:id/messages` | `{ body, attachment? }` → `Message` |
-| `POST` | `/conversations/:id/read` | `Conversation` |
-| `GET` | `/directory` | `DirectoryPerson[]` |
-
-Los errores se esperan como `{ message, code, errors?: { campo: string[] } }`; los mensajes de
-validación se muestran automáticamente en los formularios.
-
-Para el tiempo real, `useRealtimeSync()` es el único punto a cambiar: hoy escucha el bus del
-backend demo (`src/mocks/events.ts`) y en producción debería abrir un WebSocket/SSE e invalidar
-las mismas query keys.
+Si la API de chats aún no está disponible, la bandeja muestra su estado de error con opción de
+reintentar (no hay datos falsos en la app).
 
 ---
 
 ## Marca y diseño
 
-El logotipo proporcionado se procesó en `public/brand/`:
+El logotipo se procesó en `public/brand/`:
 
 | Archivo | Uso |
 | --- | --- |
@@ -256,4 +244,5 @@ Los colores de marca viven en `@theme` (`src/index.css`): `brand` (índigo del i
   `typescript <6.1.0`; con TS 7 `npm install` falla por conflicto de peers.
 * Las rutas se cargan con `React.lazy` (login y panel son bundles separados).
 * El composer hace **actualización optimista** del mensaje y revierte si la API falla.
-* La sesión se valida con `GET /auth/me` al montar el panel (`useSessionUser`).
+* El tiempo real no está conectado todavía: `features/chat/hooks.ts` es el punto para añadir
+  WebSocket/SSE invalidando las mismas query keys.
