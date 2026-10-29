@@ -1,11 +1,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-import { setAccessTokenProvider, setUnauthorizedHandler } from '@/lib/api/http'
+import { setAuthTokenProvider, setUnauthorizedHandler } from '@/lib/api/client'
+import { SESSION_STORAGE_KEY } from '@/lib/constants'
 import { queryClient } from '@/lib/query-client'
 import type { AuthUser, SessionPayload } from '@/types'
 
-export const SESSION_STORAGE_KEY = 'nexlang.session'
+export { SESSION_STORAGE_KEY }
 
 export interface SessionState {
   accessToken: string | null
@@ -68,7 +69,7 @@ export function useIsAuthenticated() {
 }
 
 // Wire the HTTP layer to the session without creating an import cycle.
-setAccessTokenProvider(() => useSessionStore.getState().accessToken)
+setAuthTokenProvider(() => useSessionStore.getState().accessToken)
 
 setUnauthorizedHandler(() => {
   const state = useSessionStore.getState()

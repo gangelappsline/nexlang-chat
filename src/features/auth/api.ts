@@ -1,29 +1,17 @@
-import { apiRequest } from '@/lib/api/http'
+import { apiClient } from '@/lib/api/client'
 import type { AuthUser, CodeChallenge, SessionPayload } from '@/types'
 
 export const authApi = {
   requestCode: (identifier: string) =>
-    apiRequest<CodeChallenge>('/auth/request-code', {
-      method: 'POST',
-      auth: false,
-      body: { identifier },
-    }),
+    apiClient.post<CodeChallenge>('/auth/request-code', { identifier }, { auth: false }),
 
   resendCode: (challengeId: string) =>
-    apiRequest<CodeChallenge>('/auth/resend-code', {
-      method: 'POST',
-      auth: false,
-      body: { challengeId },
-    }),
+    apiClient.post<CodeChallenge>('/auth/resend-code', { challengeId }, { auth: false }),
 
   verifyCode: (challengeId: string, code: string) =>
-    apiRequest<SessionPayload>('/auth/verify-code', {
-      method: 'POST',
-      auth: false,
-      body: { challengeId, code },
-    }),
+    apiClient.post<SessionPayload>('/auth/verify-code', { challengeId, code }, { auth: false }),
 
-  me: () => apiRequest<AuthUser>('/auth/me'),
+  me: () => apiClient.get<AuthUser>('/auth/me'),
 
-  logout: () => apiRequest<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  logout: () => apiClient.post<{ ok: boolean }>('/auth/logout'),
 }

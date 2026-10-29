@@ -1,4 +1,4 @@
-import { apiRequest } from '@/lib/api/http'
+import { apiClient } from '@/lib/api/client'
 import type {
   Conversation,
   ConversationDetail,
@@ -30,23 +30,22 @@ export interface UpdateConversationPayload {
 }
 
 export const chatApi = {
-  list: () => apiRequest<Conversation[]>('/conversations'),
+  list: () => apiClient.get<Conversation[]>('/conversations'),
 
-  detail: (id: string) => apiRequest<ConversationDetail>(`/conversations/${id}`),
+  detail: (id: string) => apiClient.get<ConversationDetail>(`/conversations/${id}`),
 
-  messages: (id: string) => apiRequest<Message[]>(`/conversations/${id}/messages`),
+  messages: (id: string) => apiClient.get<Message[]>(`/conversations/${id}/messages`),
 
   send: (id: string, payload: SendMessagePayload) =>
-    apiRequest<Message>(`/conversations/${id}/messages`, { method: 'POST', body: payload }),
+    apiClient.post<Message>(`/conversations/${id}/messages`, payload),
 
-  markRead: (id: string) =>
-    apiRequest<Conversation>(`/conversations/${id}/read`, { method: 'POST' }),
+  markRead: (id: string) => apiClient.post<Conversation>(`/conversations/${id}/read`),
 
   update: (id: string, payload: UpdateConversationPayload) =>
-    apiRequest<Conversation>(`/conversations/${id}`, { method: 'PATCH', body: payload }),
+    apiClient.patch<Conversation>(`/conversations/${id}`, payload),
 
   create: (payload: CreateConversationPayload) =>
-    apiRequest<Conversation>('/conversations', { method: 'POST', body: payload }),
+    apiClient.post<Conversation>('/conversations', payload),
 
-  directory: () => apiRequest<DirectoryPerson[]>('/directory'),
+  directory: () => apiClient.get<DirectoryPerson[]>('/directory'),
 }

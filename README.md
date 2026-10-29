@@ -33,17 +33,20 @@ solo se renderiza cuando existe un **token válido + el perfil del usuario** en 
 
 ```bash
 npm install
-npm run dev      # http://localhost:5176
+npm run dev      # development · http://localhost:5176
 ```
 
-Otros scripts:
+Otros scripts (cada uno carga su propio archivo `.env`):
 
-```bash
-npm run build      # typecheck + build de producción
-npm run preview    # sirve el build
-npm run lint       # ESLint (incluye reglas del React Compiler)
-npm run typecheck  # tsc -b
-```
+| Comando | Modo de Vite | Variables de entorno |
+| --- | --- | --- |
+| `npm run dev` | `development` | `.env` + `.env.development` |
+| `npm run dev:staging` | `staging` | `.env` + `.env.staging` |
+| `npm run build` | `production` | `.env` + `.env.production` |
+| `npm run build:staging` | `staging` | `.env` + `.env.staging` |
+| `npm run preview` | sirve `dist/` | — (el build ya las incluyó) |
+| `npm run lint` | ESLint (reglas del React Compiler) | — |
+| `npm run typecheck` | `tsc -b` | — |
 
 ### Cómo entrar (modo demo)
 
@@ -59,6 +62,77 @@ Los datos de la demo (conversaciones, mensajes, notas, etiquetas) se guardan en
 localStorage.removeItem('nexlang.demo.db.v1') // datos
 localStorage.removeItem('nexlang.session')    // sesión
 ```
+
+---
+
+## Variables de entorno
+
+Vite carga los archivos en cascada; **el último gana**:
+
+```
+.env  →  .env.local  →  .env.[modo]  →  .env.[modo].local
+```
+
+| Archivo | ¿Se versiona? | Cuándo se usa |
+| --- | --- | --- |
+| `.env` | ✅ | valores compartidos por todos los entornos |
+| `.env.development` | ✅ | `npm run dev` |
+| `.env.staging` | ✅ | `npm run dev:staging`, `npm run build:staging` |
+| `.env.production` | ✅ | `npm run build` |
+| `.env.example` | ✅ | plantilla documentada para copiar |
+| `.env.local` / `.env.*.local` | ❌ (gitignored) | secretos u overrides personales |
+
+Variables disponibles:
+
+| Variable | Ejemplo | Uso |
+| --- | --- | --- |
+| `VITE_BASE_API_URL` | `https://api.nexlang.io/v1` | **base de todas las peticiones** (sin barra final) |
+| `VITE_USE_MOCK_API` | `true` | `false` desactiva el backend demo y usa la API real |
+| `VITE_ENVIRONMENT` | `production` | se muestra en el menú de cuenta |
+| `VITE_REQUEST_TIMEOUT_MS` | `20000` | timeout por petición |
+| `VITE_DEBUG_REQUESTS` | `false` | loguea método + URL en consola |
+| `VITE_APP_NAME` | `Nexlang Chat` | nombre visible de la app |
+
+> Solo las variables con prefijo `VITE_` llegan al navegador: **nunca guardes secretos** en ellas.
+> El modo demo se mantiene activo en `.env.production` para que el build funcione sin backend;
+> cámbialo a `false` cuando la API real esté desplegada.
+
+Puedes abrir el **menú de cuenta** (avatar del rail o de la bandeja) para ver el entorno y el
+estado de la API (`API demo` / `API real`) que quedaron compilados.
+
+---
+
+## Cliente de API
+
+Todo el tráfico sale por un único archivo: **`src/lib/api/client.ts`**.
+
+```ts
+import { apiClient } from '@/lib/api/client'
+
+const conversations = await apiClient.get<Conversation[]>('/conversations')
+
+await apiClient.post('/conversations/c-1/messages', { body: 'Hola' })
+
+await apiClient.get('/reports', { query: { page: 2, status: 'open' } })
+```
+
+Qué resuelve:
+
+* **Base de ruta** desde `VITE_BASE_API_URL`: `request('/auth/me')` → `https://api.…/v1/auth/me`
+  (acepta rutas absolutas `https://…` cuando quieres saltarte la base).
+* **Bearer token automático**: si hay sesión guardada agrega
+  `Authorization: Bearer <accessToken>`; se puede desactivar por petición con `{ auth: false }`
+  (lo usan los endpoints de login).
+* El token se lee del store en memoria (`Zustand`) y, si aún no está hidratado, del
+  `localStorage` (`nexlang.session`), así también se envía al recargar la página.
+* **Timeout** cancelable (`VITE_REQUEST_TIMEOUT_MS`) combinado con el `AbortSignal` de TanStack Query.
+* **Errores normalizados** en `ApiError` (`status`, `code`, `fieldErrors`) y cierre de sesión
+  automático ante un `401`.
+* **Modo demo**: con `VITE_USE_MOCK_API=true` las mismas llamadas se resuelven contra `src/mocks`
+  sin hacer red, de modo que los componentes no cambian entre demo y API real.
+
+Los módulos de cada feature (`features/auth/api.ts`, `features/chat/api.ts`) solo declaran rutas
+y tipos; la sesión se conecta con `setAuthTokenProvider(...)` en `features/auth/session.ts`.
 
 ---
 
@@ -85,14 +159,18 @@ localStorage.removeItem('nexlang.session')    // sesión
 
 ```
 src/
-├── api · http            wrapper fetch con token, errores normalizados y modo demo
+├── lib/
+│   ├── api/
+│   │   ├── client.ts     base URL, bearer token, timeout, errores y modo demo
+│   │   └── errors.ts     ApiError + helpers
+│   ├── constants.ts      claves de storage compartidas
+│   ├── cn.ts · format.ts · query-client.ts · use-countdown.ts · use-media-query.ts
 ├── components/
-│   ├── brand/            logo Nexlang (marca y logotipo completo, versiones claro/oscuro)
+│   ├── brand/            logo Nexlang (marca y logotipo, claro/oscuro)
 │   └── ui/               Button, Input, Avatar, Modal, Dropdown, Badge, Skeletons…
 ├── features/
 │   ├── auth/             api, hooks, esquemas Zod, store de sesión y pantalla de login
 │   └── chat/             api, hooks (queries/mutations/optimistic), componentes y página
-├── lib/                  cn, formato (date-fns), query client, media query, countdown
 ├── mocks/                backend demo: seed, base de datos, router y bus de eventos
 ├── routes/               guards de sesión
 ├── types/                modelos compartidos
@@ -114,14 +192,20 @@ src/
 
 ## Conectar un backend real
 
-```bash
-cp .env.example .env
-# VITE_API_BASE_URL=https://api.tu-dominio.com
-# VITE_USE_MOCK_API=false
-```
+1. Copia la plantilla y ajusta los valores:
 
-Con esas variables todas las llamadas salen por `fetch` hacia tu API con
-`Authorization: Bearer <token>`; no hay que tocar componentes. Endpoints esperados:
+   ```bash
+   cp .env.example .env.local
+   ```
+
+   ```dotenv
+   VITE_BASE_API_URL=https://api.tu-dominio.com/v1
+   VITE_USE_MOCK_API=false
+   ```
+
+2. Reinicia el dev server (Vite no recarga variables en caliente).
+
+Endpoints esperados:
 
 | Método | Ruta | Respuesta |
 | --- | --- | --- |
