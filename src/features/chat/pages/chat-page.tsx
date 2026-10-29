@@ -53,8 +53,8 @@ export default function ChatPage() {
   const handleSelect = (id: string) => navigate(`/c/${id}`)
 
   return (
-    <div className="h-dvh w-full overflow-hidden bg-canvas lg:p-3">
-      <div className="relative mx-auto flex h-full max-w-[1720px] overflow-hidden bg-white lg:rounded-[26px] lg:shadow-panel lg:ring-1 lg:ring-ink-900/5">
+    <div className="h-dvh w-full overflow-hidden bg-canvas">
+      <div className="relative mx-auto flex h-full w-full overflow-hidden bg-white lg:shadow-panel lg:ring-1 lg:ring-ink-900/5">
         <WorkspaceRail conversations={conversations} />
 
         <InboxSidebar
