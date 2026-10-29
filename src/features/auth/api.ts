@@ -25,7 +25,6 @@ export interface LoginCodeChallenge {
 }
 
 const DEFAULT_RESEND_SECONDS = 30
-const DEFAULT_SESSION_HOURS = 8
 
 type JsonObject = Record<string, unknown>
 
@@ -43,6 +42,28 @@ function pickString(source: JsonObject, keys: string[]): string | undefined {
   for (const key of keys) {
     const value = source[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return undefined
+}
+
+function pickId(source: JsonObject, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = source[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  }
+  return undefined
+}
+
+function pickRole(source: JsonObject): string | undefined {
+  const direct = pickString(source, ['role', 'rol'])
+  if (direct) return direct
+
+  const roles = source.roles ?? source.role_names
+  if (Array.isArray(roles) && roles.length > 0) {
+    const first: unknown = roles[0]
+    if (typeof first === 'string') return first
+    if (isObject(first)) return pickString(first, ['name', 'slug', 'title'])
   }
   return undefined
 }
@@ -106,15 +127,23 @@ function normalizeUser(raw: JsonObject, email: string): AuthUser {
       : 'online'
 
   return {
-    id: pickString(raw, ['id', '_id', 'uuid', 'userId', 'user_id']) ?? emailValue,
+    id: pickId(raw, ['id', '_id', 'uuid', 'userId', 'user_id']) ?? emailValue,
     name,
     email: emailValue,
     username,
-    role: pickString(raw, ['role', 'rol']) ?? 'member',
+    role: pickRole(raw) ?? 'member',
     title: pickString(raw, ['title', 'jobTitle', 'job_title', 'position']) ?? 'Miembro del equipo',
-    workspace: pickString(raw, ['workspace', 'company', 'organization', 'organizationName']) ?? 'Nexlang',
+    workspace:
+      pickString(raw, ['workspace', 'company', 'organization', 'organizationName']) ?? 'Nexlang',
     avatarUrl:
-      pickString(raw, ['avatarUrl', 'avatar_url', 'avatar', 'picture', 'image']) ?? null,
+      pickString(raw, [
+        'avatarUrl',
+        'avatar_url',
+        'avatar',
+        'picture',
+        'image',
+        'profile_photo_url',
+      ]) ?? null,
     presence,
   }
 }
@@ -166,17 +195,18 @@ export function parseLoginSessionResponse(payload: unknown, email: string): Sess
     })
   }
 
-  const rawUser = [data.user, data.usuario, data.profile, data.account].find(isObject) ?? {}
-  const expiresAt =
-    pickString(data, ['expiresAt', 'expires_at', 'tokenExpiresAt']) ??
-    readJwtExpiry(accessToken) ??
-    new Date(Date.now() + DEFAULT_SESSION_HOURS * 60 * 60 * 1000).toISOString()
+  const rawUser = unwrap(
+    [data.user, data.usuario, data.profile, data.account].find(isObject) ?? {},
+  )
 
   return {
     accessToken,
-    refreshToken:
-      pickString(data, ['refreshToken', 'refresh_token', 'refresh']) ?? '',
-    expiresAt,
+    tokenType: pickString(data, ['token_type', 'tokenType']) ?? 'Bearer',
+    refreshToken: pickString(data, ['refreshToken', 'refresh_token', 'refresh']) ?? null,
+    expiresAt:
+      pickString(data, ['expiresAt', 'expires_at', 'tokenExpiresAt']) ??
+      readJwtExpiry(accessToken) ??
+      null,
     user: normalizeUser(rawUser, email),
   }
 }
@@ -195,7 +225,7 @@ export const authService = {
   /** Paso 2 · valida el código y devuelve la sesión. */
   async verifyLoginCode(email: string, code: string): Promise<SessionPayload> {
     const payload = await apiClient.post<unknown>(
-      API_PATHS.loginCode,
+      API_PATHS.loginValidation,
       { email, code },
       { auth: false },
     )

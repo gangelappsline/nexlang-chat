@@ -5,6 +5,7 @@ import { useForm, useWatch } from 'react-hook-form'
 
 import { Button } from '@/components/ui/button'
 import { getErrorMessage, getFieldErrors } from '@/lib/api/errors'
+import { cn } from '@/lib/cn'
 
 import { codeSchema, type CodeFormValues } from '../schemas'
 import { OtpInput } from './otp-input'
@@ -15,6 +16,8 @@ interface VerificationStepProps {
   error?: unknown
   seconds: number
   resending: boolean
+  remember: boolean
+  onRememberChange: (remember: boolean) => void
   onVerify: (code: string) => void
   onResend: () => void
   onBack: () => void
@@ -26,6 +29,8 @@ export function VerificationStep({
   error,
   seconds,
   resending,
+  remember,
+  onRememberChange,
   onVerify,
   onResend,
   onBack,
@@ -105,6 +110,36 @@ export function VerificationStep({
             {errors.code?.message ?? serverError}
           </p>
         ) : null}
+
+        <div className="flex items-start justify-between gap-3 rounded-xl bg-surface px-3.5 py-3 ring-1 ring-inset ring-line">
+          <div className="min-w-0">
+            <p className="text-[12.5px] font-medium text-ink-700">Mantener la sesión</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-ink-400">
+              {remember
+                ? 'La sesión se conservará aunque cierres el navegador.'
+                : 'Por seguridad, la sesión se cierra al cerrar la pestaña.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={remember}
+            aria-label="Mantener la sesión en este dispositivo"
+            onClick={() => onRememberChange(!remember)}
+            className={cn(
+              'relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
+              remember ? 'bg-brand-600' : 'bg-ink-300',
+            )}
+          >
+            <span
+              className={cn(
+                'absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform duration-150',
+                remember ? 'translate-x-[22px]' : 'translate-x-0.5',
+              )}
+            />
+          </button>
+        </div>
 
         <Button
           type="submit"

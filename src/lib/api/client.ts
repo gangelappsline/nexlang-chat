@@ -1,6 +1,5 @@
-import type { AuthUser } from '@/types'
-
 import { SESSION_STORAGE_KEY } from '../constants'
+import { readRawSession } from '../session-storage'
 import { ApiError } from './errors'
 
 /* -------------------------------------------------------------------------- */
@@ -62,18 +61,18 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
 interface PersistedSession {
   state?: {
     accessToken?: string | null
+    tokenType?: string | null
     refreshToken?: string | null
     expiresAt?: string | null
-    user?: AuthUser | null
   }
   version?: number
 }
 
+/** Lee el snapshot persistido (sessionStorage primero, luego localStorage). */
 function readPersistedSession(): PersistedSession['state'] | null {
-  if (typeof window === 'undefined') return null
+  const raw = readRawSession(SESSION_STORAGE_KEY)
+  if (!raw) return null
   try {
-    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY)
-    if (!raw) return null
     const parsed = JSON.parse(raw) as PersistedSession
     return parsed?.state ?? null
   } catch {
@@ -83,7 +82,7 @@ function readPersistedSession(): PersistedSession['state'] | null {
 
 /**
  * Token guardado: primero consulta el store en memoria y, si aún no existe,
- * recupera la sesión persistida en `localStorage`.
+ * recupera la sesión persistida.
  */
 export function getStoredAccessToken(): string | null {
   try {
@@ -93,6 +92,19 @@ export function getStoredAccessToken(): string | null {
     // el provider puede fallar antes de hidratar: usamos el fallback
   }
   return readPersistedSession()?.accessToken ?? null
+}
+
+/** Esquema del token devuelto por la API (`Bearer` por defecto). */
+export function getStoredTokenType(): string {
+  const tokenType = readPersistedSession()?.tokenType
+  return tokenType && tokenType.trim() ? tokenType.trim() : 'Bearer'
+}
+
+/** Cabecera `Authorization` completa, o `null` si no hay sesión. */
+export function getStoredAuthorization(): string | null {
+  const token = getStoredAccessToken()
+  if (!token) return null
+  return `${getStoredTokenType()} ${token}`
 }
 
 export function getStoredRefreshToken(): string | null {
@@ -184,7 +196,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     query,
   } = options
 
-  const token = auth ? getStoredAccessToken() : null
+  const authorization = auth ? getStoredAuthorization() : null
   const url = buildUrl(path, query)
   const controller = new AbortController()
   const abortFromCaller = () => controller.abort()
@@ -197,7 +209,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   try {
     if (DEBUG_REQUESTS) {
-      console.debug(`[api] ${method} ${url}`, { auth: Boolean(token) })
+      console.debug(`[api] ${method} ${url}`, { auth: Boolean(authorization) })
     }
 
     const response = await fetch(url, {
@@ -207,7 +219,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       headers: {
         Accept: 'application/json',
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(authorization ? { Authorization: authorization } : {}),
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),

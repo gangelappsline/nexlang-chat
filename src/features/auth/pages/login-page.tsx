@@ -26,6 +26,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const [challenge, setChallenge] = useState<LoginCodeChallenge | null>(null)
+  const [remember, setRemember] = useState(false)
 
   const requestCode = useRequestLoginCode()
   const resendCode = useResendLoginCode()
@@ -53,7 +54,7 @@ export default function LoginPage() {
     if (!challenge) return
 
     verifyCode.mutate(
-      { email: challenge.email, code },
+      { email: challenge.email, code, remember },
       {
         onSuccess: (session) => {
           toast.success(`¡Bienvenido, ${firstName(session.user.name)}!`, {
@@ -105,6 +106,8 @@ export default function LoginPage() {
               error={verifyCode.error}
               seconds={seconds}
               resending={resendCode.isPending}
+              remember={remember}
+              onRememberChange={setRemember}
               onVerify={handleVerify}
               onResend={handleResend}
               onBack={() => {

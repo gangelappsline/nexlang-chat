@@ -20,10 +20,17 @@ export function useVerifyLoginCode() {
   const setSession = useSessionStore((state) => state.setSession)
 
   return useMutation({
-    mutationFn: ({ email, code }: { email: string; code: string }) =>
-      authService.verifyLoginCode(email, code),
-    onSuccess: (session) => {
-      setSession(session)
+    mutationFn: ({
+      email,
+      code,
+    }: {
+      email: string
+      code: string
+      remember?: boolean
+    }) => authService.verifyLoginCode(email, code),
+    onSuccess: (session, variables) => {
+      // `remember` decide si la sesión vive en la pestaña o en el navegador.
+      setSession(session, { remember: variables.remember })
     },
   })
 }

@@ -80,62 +80,61 @@ Vite carga los archivos en cascada; **el último gana**:
 
 ## Autenticación
 
-Todo el flujo usa **un solo endpoint**:
+Flujo sin contraseña con dos endpoints:
 
-```
-POST ${VITE_BASE_API_URL}/v1/chat/login-code
-```
-
-| Paso | Body | Resultado en la app |
+| Paso | Petición | Resultado en la app |
 | --- | --- | --- |
-| 1 · solicitar código | `{ "email": "nombre@empresa.com" }` | muestra el formulario de 6 dígitos |
-| 2 · validar código | `{ "email": "nombre@empresa.com", "code": "123456" }` | guarda token + usuario y abre el panel |
+| 1 · solicitar código | `POST ${VITE_BASE_API_URL}/v1/chat/login-code` · `{ "email": "ana@empresa.com" }` | si responde OK se muestra el formulario de 6 dígitos |
+| 2 · validar código | `POST ${VITE_BASE_API_URL}/v1/chat/login-validation` · `{ "email": "ana@empresa.com", "code": "123456" }` | guarda la sesión y abre el panel |
 
-El reenvío del código vuelve a llamar al **paso 1** con el mismo `email`.
+El reenvío del código vuelve a llamar al **paso 1**. Las rutas viven en
+`src/lib/api/endpoints.ts`.
 
-### Respuestas aceptadas
+### Respuesta esperada del paso 2
 
-El servicio (`src/features/auth/api.ts`) normaliza la respuesta para tolerar distintas
-implementaciones:
-
-```jsonc
-// Paso 1 (opcional: solo necesitamos que la petición sea exitosa)
-{ "message": "Código enviado", "challengeId": "abc123", "resendAfterSeconds": 30 }
-
-// Paso 2
+```json
 {
-  "accessToken": "eyJhbGciOi...",       // también: token, access_token, jwt, auth_token…
-  "refreshToken": "…",                   // opcional
-  "expiresAt": "2026-10-30T02:00:00Z",   // opcional: si falta se usa el `exp` del JWT
-  "user": {                              // también: usuario, profile, account
-    "id": 42,
-    "name": "Ana Pérez",                 // o fullName / full_name / displayName
-    "email": "ana@empresa.com",
-    "username": "ana.perez",
-    "role": "admin",
-    "title": "Team Lead",
-    "workspace": "Nexlang HQ",
-    "avatarUrl": "https://…"
-  }
+  "user": {
+    "data": {
+      "id": 42,
+      "name": "Ana Pérez",
+      "email": "ana@empresa.com",
+      "username": "ana.perez",
+      "avatar_url": null
+    }
+  },
+  "access_token": "42|Xr7jh...",
+  "token_type": "Bearer"
 }
 ```
 
-* La respuesta puede venir envuelta en `data` / `result` / `payload`.
-* Si el paso 2 no incluye ningún token se lanza un `ApiError` (`502 invalid_response`) con un
-  mensaje claro en el formulario.
-* Si el usuario no viene completo se completa con el correo del login (nombre derivado del
-  correo), de modo que la sesión nunca queda a medias.
+El servicio (`src/features/auth/api.ts`) normaliza la respuesta y tolera variantes:
 
-### Sesión
+* token en `access_token` / `accessToken` / `token` / `jwt` / `bearer`;
+* `token_type` se usa tal cual en la cabecera `Authorization` (por defecto `Bearer`);
+* `user` puede venir como `UserResource` (anidado en `data`), en `usuario`, `profile` o
+  `account`; si faltan campos se completan con el correo del login;
+* `expiresAt` es opcional: se toma de `expires_at` o del `exp` del JWT. Con tokens tipo Sanctum
+  (sin caducidad) se guarda `null` y la validez se confirma con la API (un `401` cierra sesión);
+* si el paso 2 no devuelve ningún token se lanza un `ApiError` (`502 invalid_response`) y el
+  formulario muestra el mensaje.
 
-* `Zustand` + `persist` guarda `accessToken`, `refreshToken`, `expiresAt` y `user` en
-  `localStorage` (`nexlang.session`).
+### Sesión y almacenamiento seguro
+
+* `Zustand` + `persist` guarda **token, tipo de token, refresh token y perfil** en
+  `nexlang.session`.
+* Por defecto la sesión vive en **`sessionStorage`**: se borra al cerrar la pestaña.
+  El usuario puede activar **“Mantener la sesión”** en el paso del código para persistirla en
+  `localStorage` durante más tiempo.
+* Nunca se guardan contraseñas ni códigos; el token no se imprime en consola y en la UI solo se
+  muestra el correo del usuario.
+* Al cerrar sesión se limpian ambos almacenes, el estado de TanStack Query y se llama a
+  `POST /v1/chat/logout`.
 * `RequireAuth` (`src/routes/guards.tsx`) bloquea `/` y `/c/:id` si falta el token o el usuario,
-  o si `expiresAt` ya pasó; redirige a `/login` conservando la ruta de origen.
-* `RedirectIfAuthenticated` evita que un usuario con sesión vea el login.
-* Cualquier `401` de la API limpia la sesión y la caché de TanStack Query.
-
----
+  o si la sesión caducó; redirige a `/login` conservando la ruta de origen.
+* Cualquier `401` de la API limpia la sesión y la caché automáticamente.
+* El cliente envía `Authorization: <token_type> <access_token>` en todas las peticiones
+  autenticadas (login y validación van con `{ auth: false }`).
 
 ## Cliente de API
 
@@ -152,10 +151,10 @@ await apiClient.get('/reports', { query: { page: 2, status: 'open' } })
 ```
 
 * **Base** `VITE_BASE_API_URL` + ruta (acepta URLs absolutas si necesitas otra base).
-* **Bearer token automático**: agrega `Authorization: Bearer <accessToken>` cuando hay sesión
-  guardada; se puede desactivar con `{ auth: false }` (lo usan los endpoints de login).
-  El token se lee del store en memoria y, como respaldo, del `localStorage`, así se envía incluso
-  tras recargar.
+* **Bearer token automático**: agrega `Authorization: <token_type> <accessToken>` (normalmente
+  `Bearer`) cuando hay sesión guardada; se puede desactivar con `{ auth: false }` (lo usan los
+  endpoints de login). El token se lee del store en memoria y, como respaldo, del almacén de
+  sesión (`sessionStorage` o `localStorage`), así se envía incluso tras recargar.
 * **Timeout** cancelable (`VITE_REQUEST_TIMEOUT_MS`) combinado con el `AbortSignal` de TanStack Query.
 * **Errores normalizados** en `ApiError` (`status`, `code`, `fieldErrors`) y cierre de sesión
   automático ante un `401`.
@@ -164,7 +163,8 @@ await apiClient.get('/reports', { query: { page: 2, status: 'open' } })
 
 | Método | Ruta | Uso |
 | --- | --- | --- |
-| `POST` | `/v1/chat/login-code` | solicitar código (email) y validarlo (email + code) |
+| `POST` | `/v1/chat/login-code` | solicitar el código (`{ email }`) |
+| `POST` | `/v1/chat/login-validation` | validar el código (`{ email, code }`) |
 | `POST` | `/v1/chat/logout` | cerrar sesión en el servidor |
 | `GET` | `/v1/chat/conversations` | bandeja de entrada |
 | `POST` | `/v1/chat/conversations` | crear chat directo o grupo |
@@ -197,7 +197,7 @@ src/
 │   ├── brand/            logo Nexlang (marca y logotipo, claro/oscuro)
 │   └── ui/               Button, Input, Avatar, Modal, Dropdown, Badge, Skeletons…
 ├── features/
-│   ├── auth/             servicio de login-code, hooks, esquemas Zod, sesión y pantalla
+│   ├── auth/             servicio login-code / login-validation, sesión y pantalla
 │   └── chat/             api, hooks (queries/mutations con optimistic), componentes y página
 ├── routes/               guards de sesión
 ├── types/                modelos compartidos
