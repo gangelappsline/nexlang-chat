@@ -1,57 +1,14 @@
-import {
-  AtSign,
-  FileText,
-  Paperclip,
-  SendHorizontal,
-  Smile,
-  Sparkles,
-  X,
-  Zap,
-} from 'lucide-react'
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import { SendHorizontal, Smile } from 'lucide-react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
 import { IconButton } from '@/components/ui/button'
-import { Dropdown, MenuItem, MenuLabel } from '@/components/ui/dropdown'
+import { Dropdown } from '@/components/ui/dropdown'
 import { cn } from '@/lib/cn'
-import type { MessageAttachment } from '@/types'
-
-import type { SendMessagePayload } from '../api'
 
 const EMOJIS = ['😊', '🙌', '👍', '🎉', '✅', '🙏', '🔥', '💜', '😅', '🤝', '📎', '⚡']
 
-const QUICK_REPLIES = [
-  '¡Hola! ¿En qué puedo ayudarte hoy?',
-  'Gracias por tu paciencia, lo estoy revisando.',
-  '¿Me compartes tu número de referencia?',
-  'Ya quedó resuelto ✅ ¿Algo más en lo que pueda ayudarte?',
-]
-
-function fileToAttachment(file: File): MessageAttachment {
-  const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
-  const kind: MessageAttachment['kind'] =
-    extension === 'pdf'
-      ? 'pdf'
-      : ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(extension)
-        ? 'image'
-        : ['xls', 'xlsx', 'csv'].includes(extension)
-          ? 'sheet'
-          : 'doc'
-
-  const size =
-    file.size > 1024 * 1024
-      ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
-      : `${Math.max(1, Math.round(file.size / 1024))} KB`
-
-  return {
-    id: `file-${Date.now()}`,
-    name: file.name,
-    size,
-    kind,
-  }
-}
-
 interface ComposerProps {
-  onSend: (payload: SendMessagePayload) => void
+  onSend: (text: string) => void
   placeholder?: string
   disabled?: boolean
   sending?: boolean
@@ -64,9 +21,7 @@ export function Composer({
   sending = false,
 }: ComposerProps) {
   const [text, setText] = useState('')
-  const [attachment, setAttachment] = useState<MessageAttachment | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const element = textareaRef.current
@@ -77,10 +32,9 @@ export function Composer({
 
   const send = () => {
     const body = text.trim()
-    if (!body && !attachment) return
-    onSend({ body, ...(attachment ? { attachment } : {}) })
+    if (!body || disabled || sending) return
+    onSend(body)
     setText('')
-    setAttachment(null)
     requestAnimationFrame(() => textareaRef.current?.focus())
   }
 
@@ -96,33 +50,9 @@ export function Composer({
     textareaRef.current?.focus()
   }
 
-  const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) setAttachment(fileToAttachment(file))
-    event.target.value = ''
-  }
-
   return (
     <div className="border-t border-line bg-white px-3 pb-3 pt-3 sm:px-5">
       <div className="mx-auto max-w-3xl">
-        {attachment ? (
-          <div className="mb-2 flex items-center gap-2 rounded-xl bg-surface px-3 py-2 ring-1 ring-line">
-            <FileText className="size-4 text-brand-600" />
-            <p className="min-w-0 flex-1 truncate text-[12px] font-medium text-ink-700">
-              {attachment.name}
-            </p>
-            <span className="text-[11px] text-ink-400">{attachment.size}</span>
-            <button
-              type="button"
-              onClick={() => setAttachment(null)}
-              aria-label="Quitar archivo"
-              className="grid size-6 place-items-center rounded-md text-ink-400 hover:bg-white hover:text-ink-700"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        ) : null}
-
         <div
           className={cn(
             'rounded-2xl bg-white ring-1 ring-line-strong transition-all',
@@ -170,49 +100,6 @@ export function Composer({
               )}
             </Dropdown>
 
-            <IconButton
-              label="Adjuntar archivo"
-              size="sm"
-              onClick={() => fileRef.current?.click()}
-            >
-              <Paperclip className="size-[17px]" />
-            </IconButton>
-            <input ref={fileRef} type="file" className="hidden" onChange={handleFile} />
-
-            <Dropdown
-              align="left"
-              panelClassName="w-[288px]"
-              trigger={({ toggle }) => (
-                <IconButton label="Respuestas rápidas" size="sm" onClick={toggle}>
-                  <Zap className="size-[17px]" />
-                </IconButton>
-              )}
-            >
-              {({ close }) => (
-                <>
-                  <MenuLabel>Respuestas rápidas</MenuLabel>
-                  {QUICK_REPLIES.map((reply) => (
-                    <MenuItem
-                      key={reply}
-                      icon={<Sparkles className="size-3.5" />}
-                      onClick={() => {
-                        insert(reply)
-                        close()
-                      }}
-                    >
-                      <span className="line-clamp-2 whitespace-normal text-left">{reply}</span>
-                    </MenuItem>
-                  ))}
-                </>
-              )}
-            </Dropdown>
-
-            <span className="mx-1 h-5 w-px bg-line" aria-hidden="true" />
-
-            <IconButton label="Mencionar a alguien" size="sm" onClick={() => insert('@')}>
-              <AtSign className="size-[17px]" />
-            </IconButton>
-
             <div className="ml-auto flex items-center gap-2">
               <span className="hidden text-[10.5px] text-ink-400 sm:block">
                 <kbd className="rounded border border-line bg-surface px-1 py-0.5 font-sans">Enter</kbd>{' '}
@@ -221,14 +108,14 @@ export function Composer({
               <button
                 type="button"
                 onClick={send}
-                disabled={(!text.trim() && !attachment) || sending}
+                disabled={!text.trim() || sending || disabled}
                 className={cn(
                   'inline-flex h-9 items-center gap-1.5 rounded-xl bg-brand-600 px-4 text-[12.5px] font-semibold text-white transition-all',
                   'hover:bg-brand-700 disabled:pointer-events-none disabled:opacity-40',
                   'shadow-[0_10px_24px_-14px_rgba(61,84,242,0.9)]',
                 )}
               >
-                Enviar
+                {sending ? 'Enviando…' : 'Enviar'}
                 <SendHorizontal className="size-4" />
               </button>
             </div>

@@ -1,7 +1,8 @@
 # Nexlang Chat
 
 Aplicación de mensajería para equipos inspirada en Slack y Microsoft Teams: chats directos,
-grupos de trabajo, bandeja de conversaciones con clientes y panel de detalles del visitante.
+grupos de trabajo y bandeja de conversaciones con último mensaje, contador de no leídos y panel
+de participantes. Todas las conversaciones y mensajes vienen de la API real.
 
 El acceso funciona con **código de un solo uso enviado al correo** y el panel solo se renderiza
 cuando existe un **token válido + el perfil del usuario** en la sesión.
@@ -145,8 +146,8 @@ Todo el tráfico sale por **`src/lib/api/client.ts`** y las rutas viven en
 import { apiClient } from '@/lib/api/client'
 import { API_PATHS } from '@/lib/api/endpoints'
 
-const conversations = await apiClient.get<Conversation[]>(API_PATHS.conversations)
-await apiClient.post(API_PATHS.conversations, { type: 'direct', memberIds: [2] })
+const conversations = await apiClient.get<unknown>(API_PATHS.conversations)
+await apiClient.post(API_PATHS.conversations, { participants: [18], type: 'private' })
 await apiClient.get('/reports', { query: { page: 2, status: 'open' } })
 ```
 
@@ -166,19 +167,54 @@ await apiClient.get('/reports', { query: { page: 2, status: 'open' } })
 | `POST` | `/v1/chat/login-code` | solicitar el código (`{ email }`) |
 | `POST` | `/v1/chat/login-validation` | validar el código (`{ email, code }`) |
 | `POST` | `/v1/chat/logout` | cerrar sesión en el servidor |
-| `GET` | `/v1/chat/conversations` | bandeja de entrada |
-| `POST` | `/v1/chat/conversations` | crear chat directo o grupo |
-| `GET` | `/v1/chat/conversations/:id` | conversación + mensajes |
-| `PATCH` | `/v1/chat/conversations/:id` | fijar, silenciar, archivar, notas, etiquetas |
-| `GET` | `/v1/chat/conversations/:id/messages` | historial |
-| `POST` | `/v1/chat/conversations/:id/messages` | enviar mensaje (`{ body, attachment? }`) |
-| `POST` | `/v1/chat/conversations/:id/read` | marcar como leída |
-| `GET` | `/v1/chat/directory` | contactos para nuevos chats/grupos |
+| `GET` | `/v1/chat/conversations` | bandeja de entrada (`{ success, data: [...] }`) |
+| `POST` | `/v1/chat/conversations` | crear conversación (`{ participants: [id], type, name? }`) |
+| `GET` | `/v1/chat/conversations/:id/messages` | historial de mensajes |
+| `POST` | `/v1/chat/conversations/:id/messages` | enviar mensaje (`{ message, type: 'text' }`) |
+| `POST` | `/v1/chat/conversations/:id/read` | marcar como leída (opcional, best-effort) |
+| `GET` | `/v1/chat/users` | personas disponibles para chatear (sin el usuario logueado) |
 
 Los errores se esperan como `{ message, code, errors?: { campo: string[] } }`; los mensajes de
 validación se muestran automáticamente en los formularios.
 
 Si las rutas de tu backend cambian, solo hay que editar `src/lib/api/endpoints.ts`.
+
+### Respuesta de la bandeja
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 4,
+      "name": null,
+      "type": "private",
+      "created_by": { "id": 1, "name": "Angel Garcia", "email": "admin@translation.com", "photo": "http://…" },
+      "participants": [ { "id": 1, "name": "Angel Garcia", "email": "…", "photo": "http://…" }, { "id": 18, "name": "Dominique Gomez", "email": "…", "photo": null } ],
+      "participant_count": 2,
+      "latest_message": { "id": 3, "conversation_id": 4, "user": { "id": 1, "name": "Angel Garcia" }, "message": "Nuevo", "type": "text", "created_at": "2026-03-15T17:12:09+00:00" },
+      "unread_count": 0,
+      "created_at": "2026-03-15T16:25:11+00:00",
+      "updated_at": "2026-03-15T17:12:09+00:00"
+    }
+  ],
+  "message": "Conversation list"
+}
+```
+
+`features/chat/mappers.ts` normaliza esa respuesta al modelo de la UI:
+
+* `name` nulo en conversaciones `private` → el título es el **otro participante**
+  (los grupos usan `name` o la lista de integrantes).
+* `latest_message` se convierte en la vista previa de la fila (con prefijo `Tú:` o el nombre del
+  autor en grupos) y en la hora que se muestra a la derecha.
+* `unread_count` pinta el badge de no leídos; al abrir la conversación se marca como leída
+  (`POST …/read`, best-effort) y se guarda una marca local del último mensaje leído
+  (`nexlang.chat.read-marks`) para que el contador no reaparezca al refrescar. Si llega un
+  mensaje nuevo, el badge vuelve a mostrarse.
+* Las fotos (`photo`) se usan como avatar; si faltan o fallan se muestran iniciales.
+* La lista y el hilo se refrescan solos cada ~20 s y ~12 s (polling configurable en
+  `features/chat/hooks.ts`).
 
 ---
 
@@ -210,10 +246,11 @@ src/
 * **Login** (`/login`): layout partido con panel de marca, correo electrónico y segundo paso con
   OTP de 6 dígitos (autoadvance, pegado, reenvío con cuenta atrás).
 * **Panel** (`/`, `/c/:conversationId`): rail de navegación, bandeja con filtros
-  (todos / no leídos / grupos / archivados), búsqueda (`⌘K`), orden, lista de conversaciones,
-  hilo de mensajes con burbujas agrupadas, composer (emojis, adjuntos, respuestas rápidas)
-  y panel derecho con resumen del usuario, mapa, etiquetas, notas y archivos.
-* **Nueva conversación**: chats directos o grupos, con búsqueda de contactos y multi-selección.
+  (todos / no leídos / grupos), búsqueda (`⌘K`), orden, lista de conversaciones con último
+  mensaje, hora y badge de no leídos, hilo de mensajes con burbujas agrupadas, composer
+  (emojis, envío con `Enter`) y panel derecho con los participantes de la conversación.
+* **Nueva conversación**: al elegir una persona se crea el chat directo al instante; en modo
+  grupo se seleccionan varios participantes (y nombre opcional) y se crea al confirmar.
 
 Si la API de chats aún no está disponible, la bandeja muestra su estado de error con opción de
 reintentar (no hay datos falsos en la app).
@@ -244,5 +281,5 @@ Los colores de marca viven en `@theme` (`src/index.css`): `brand` (índigo del i
   `typescript <6.1.0`; con TS 7 `npm install` falla por conflicto de peers.
 * Las rutas se cargan con `React.lazy` (login y panel son bundles separados).
 * El composer hace **actualización optimista** del mensaje y revierte si la API falla.
-* El tiempo real no está conectado todavía: `features/chat/hooks.ts` es el punto para añadir
-  WebSocket/SSE invalidando las mismas query keys.
+* La bandeja y el hilo se actualizan por **polling**; `features/chat/hooks.ts` es el punto para
+  añadir WebSocket/SSE invalidando las mismas query keys.

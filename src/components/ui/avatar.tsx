@@ -1,5 +1,5 @@
 import type { Presence } from '@/types'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { cn } from '@/lib/cn'
 import { accentFor, initials } from '@/lib/format'
@@ -30,6 +30,8 @@ const presenceColor: Record<Presence, string> = {
 
 interface AvatarProps {
   name: string
+  /** Foto de la API; si falta o falla se muestran las iniciales. */
+  photoUrl?: string | null
   accent?: string
   size?: Size
   presence?: Presence
@@ -41,6 +43,7 @@ interface AvatarProps {
 
 export function Avatar({
   name,
+  photoUrl,
   accent,
   size = 'md',
   presence,
@@ -50,6 +53,8 @@ export function Avatar({
   ring = false,
 }: AvatarProps) {
   const gradient = accent ?? accentFor(name)
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  const showPhoto = Boolean(photoUrl) && failedUrl !== photoUrl
 
   return (
     <span className={cn('relative inline-flex shrink-0', className)}>
@@ -63,7 +68,20 @@ export function Avatar({
         )}
         aria-hidden="true"
       >
-        {initials(name)}
+        {showPhoto && photoUrl ? (
+          <img
+            src={photoUrl}
+            alt=""
+            loading="lazy"
+            onError={() => setFailedUrl(photoUrl)}
+            className={cn(
+              'size-full object-cover',
+              rounded === 'full' ? 'rounded-full' : 'rounded-2xl',
+            )}
+          />
+        ) : (
+          initials(name)
+        )}
       </span>
       {presence ? (
         <span
@@ -85,7 +103,7 @@ export function Avatar({
 }
 
 interface AvatarStackProps {
-  people: { name: string; accent?: string }[]
+  people: { name: string; accent?: string; photoUrl?: string | null }[]
   size?: Size
   max?: number
 }
@@ -98,7 +116,13 @@ export function AvatarStack({ people, size = 'sm', max = 3 }: AvatarStackProps) 
     <div className="flex items-center">
       {visible.map((person, index) => (
         <span key={`${person.name}-${index}`} className={index > 0 ? '-ml-2' : undefined}>
-          <Avatar name={person.name} accent={person.accent} size={size} ring />
+          <Avatar
+            name={person.name}
+            accent={person.accent}
+            photoUrl={person.photoUrl}
+            size={size}
+            ring
+          />
         </span>
       ))}
       {rest > 0 ? (

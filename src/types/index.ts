@@ -1,15 +1,5 @@
 export type Presence = 'online' | 'away' | 'offline'
 
-export type ConversationType = 'direct' | 'group'
-
-export type Channel = 'web' | 'email' | 'whatsapp' | 'phone' | 'app'
-
-export type ConversationStatus = 'open' | 'pending' | 'closed'
-
-export type MessageAuthorRole = 'visitor' | 'agent' | 'member' | 'system'
-
-export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
-
 export interface AuthUser {
   id: string
   name: string
@@ -32,99 +22,51 @@ export interface SessionPayload {
   user: AuthUser
 }
 
-export interface ConversationStats {
-  sessions: number
-  durationSeconds: number
-  tickets: number
-}
+/* -------------------------------------------------------------------------- */
+/* Chat (modelo normalizado a partir de las respuestas de la API)             */
+/* -------------------------------------------------------------------------- */
 
-export interface Assignee {
+export interface ChatUser {
   id: string
   name: string
-  presence: Presence
-}
-
-export interface VisitorProfile {
-  fullName: string
   email: string
-  phone: string
-  location: string
-  visitorType: string
-  gender: string
-  presence: Presence
-  browser: string
-  timezone: string
+  /** URL absoluta de la foto de perfil, o `null` si el usuario no tiene. */
+  photoUrl: string | null
 }
 
-export interface ConversationMember {
+export interface LastMessage {
   id: string
-  name: string
-  role: 'owner' | 'admin' | 'member'
-  presence: Presence
-  email: string
+  authorId: string
+  authorName: string
+  body: string
+  createdAt: string
 }
 
-export interface MessageAttachment {
+export interface Conversation {
   id: string
-  name: string
-  size: string
-  kind: 'pdf' | 'image' | 'sheet' | 'doc' | 'link'
+  type: 'direct' | 'group'
+  title: string
+  participants: ChatUser[]
+  participantCount: number
+  /** Usuario que inició la conversación (si la API lo informa). */
+  createdById: string | null
+  unreadCount: number
+  lastMessage: LastMessage | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface Message {
   id: string
   conversationId: string
-  role: MessageAuthorRole
   authorId: string
   authorName: string
+  authorPhotoUrl: string | null
   body: string
+  kind: 'text' | 'system'
   createdAt: string
-  status: MessageStatus
-  kind?: 'text' | 'system'
-  attachment?: MessageAttachment | null
-}
-
-export interface Conversation {
-  id: string
-  type: ConversationType
-  title: string
-  subtitle: string
-  channel: Channel
-  status: ConversationStatus
-  updatedAt: string
-  createdAt: string
-  unreadCount: number
-  pinned: boolean
-  muted: boolean
-  archived: boolean
-  tags: string[]
-  notes: string
-  assignee: Assignee
-  stats: ConversationStats
-  profile?: VisitorProfile
-  members?: ConversationMember[]
-  description?: string
-  accent: string
-  lastMessage?: {
-    body: string
-    authorName: string
-    createdAt: string
-    role: MessageAuthorRole
-  } | null
-}
-
-export interface ConversationDetail {
-  conversation: Conversation
-  messages: Message[]
-}
-
-export interface DirectoryPerson {
-  id: string
-  name: string
-  email: string
-  role: string
-  presence: Presence
-  accent: string
+  /** `sending` solo existe en el mensaje optimista mientras viaja a la API. */
+  status: 'sending' | 'sent' | 'failed'
 }
 
 export interface ApiFieldErrors {

@@ -4,15 +4,15 @@ import { useNavigate, useParams } from 'react-router-dom'
 
 import { LogoMark } from '@/components/brand/logo'
 import { Button } from '@/components/ui/button'
-import { useMediaQuery } from '@/lib/use-media-query'
 import { cn } from '@/lib/cn'
+import { useMediaQuery } from '@/lib/use-media-query'
 
 import { ChatView } from '../components/chat-view'
 import { InboxSidebar } from '../components/inbox-sidebar'
 import { InfoPanel } from '../components/info-panel'
 import { NewConversationDialog } from '../components/new-conversation-dialog'
 import { WorkspaceRail } from '../components/workspace-rail'
-import { useConversation, useConversations } from '../hooks'
+import { useConversations, useMessages } from '../hooks'
 
 export default function ChatPage() {
   const { conversationId } = useParams<{ conversationId: string }>()
@@ -20,7 +20,7 @@ export default function ChatPage() {
   const isWide = useMediaQuery('(min-width: 1280px)')
 
   const conversationsQuery = useConversations()
-  const detailQuery = useConversation(conversationId)
+  const messagesQuery = useMessages(conversationId)
 
   const [infoOverride, setInfoOverride] = useState<boolean | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -31,20 +31,20 @@ export default function ChatPage() {
     () => conversationsQuery.data ?? [],
     [conversationsQuery.data],
   )
+  const messages = useMemo(() => messagesQuery.data ?? [], [messagesQuery.data])
 
-  const summary = conversations.find((conversation) => conversation.id === conversationId)
-  const conversation = detailQuery.data?.conversation ?? summary
-  const messages = detailQuery.data?.messages ?? []
+  const conversation = conversations.find((item) => item.id === conversationId)
+  const isLoadingConversation = messagesQuery.isLoading || conversationsQuery.isLoading
 
   useEffect(() => {
     document.title = conversation ? `${conversation.title} · Nexlang Chat` : 'Nexlang Chat'
   }, [conversation])
 
-  // On desktop the first conversation is opened automatically.
+  // En escritorio se abre la conversación más reciente (o con no leídos).
   useEffect(() => {
     if (conversationId || !isWide || conversations.length === 0) return
-    const first = conversations.find((item) => !item.archived && item.unreadCount > 0) ??
-      conversations.find((item) => !item.archived)
+    const first =
+      conversations.find((item) => item.unreadCount > 0) ?? conversations[0]
     if (first) navigate(`/c/${first.id}`, { replace: true })
   }, [conversationId, isWide, conversations, navigate])
 
@@ -76,17 +76,31 @@ export default function ChatPage() {
             <ChatView
               conversation={conversation}
               messages={messages}
-              isLoading={detailQuery.isLoading}
+              isLoading={messagesQuery.isLoading}
               infoOpen={infoOpen}
               onBack={() => navigate('/')}
               onToggleInfo={() => setInfoOpen(!infoOpen)}
             />
-          ) : detailQuery.isLoading && conversationId ? (
+          ) : conversationId && isLoadingConversation ? (
             <div className="flex flex-1 items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <span className="size-8 animate-spin rounded-full border-2 border-brand-200 border-t-brand-600" />
                 <p className="text-[12.5px] text-ink-400">Cargando conversación…</p>
               </div>
+            </div>
+          ) : conversationId ? (
+            <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+              <LogoMark className="h-12 opacity-90" />
+              <h2 className="mt-5 text-[20px] font-semibold tracking-[-0.02em] text-ink-900">
+                Conversación no disponible
+              </h2>
+              <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-ink-500">
+                No encontramos esta conversación en tu bandeja. Puede que ya no tengas acceso a
+                ella.
+              </p>
+              <Button className="mt-6" onClick={() => navigate('/')}>
+                Volver a la bandeja
+              </Button>
             </div>
           ) : (
             <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-8 text-center">
@@ -108,11 +122,10 @@ export default function ChatPage() {
                 </Button>
                 <Button
                   variant="secondary"
-                  onClick={() =>
-                    navigate(
-                      `/c/${conversations.find((item) => !item.archived)?.id ?? conversations[0]?.id ?? ''}`,
-                    )
-                  }
+                  onClick={() => {
+                    const first = conversations[0]
+                    if (first) navigate(`/c/${first.id}`)
+                  }}
                   disabled={conversations.length === 0}
                 >
                   Abrir la más reciente
@@ -145,8 +158,7 @@ export default function ChatPage() {
             <InfoPanel
               key={conversation.id}
               conversation={conversation}
-              messages={messages}
-              isLoading={detailQuery.isLoading}
+              isLoading={conversationsQuery.isLoading}
               onClose={() => setInfoOpen(false)}
               className={cn(
                 'z-40 bg-white',

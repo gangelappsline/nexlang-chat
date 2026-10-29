@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 
 import { setAuthTokenProvider, setUnauthorizedHandler } from '@/lib/api/client'
+import { clearReadMarks } from '@/features/chat/read-state'
 import { SESSION_STORAGE_KEY } from '@/lib/constants'
 import { queryClient } from '@/lib/query-client'
 import {
@@ -67,6 +68,7 @@ export const useSessionStore = create<SessionState>()(
         })
         // Elimina el snapshot persistido de ambos almacenes.
         removeRawSession(SESSION_STORAGE_KEY)
+        clearReadMarks()
       },
     }),
     {

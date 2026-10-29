@@ -1,67 +1,22 @@
 import { motion } from 'framer-motion'
-import { Check, CheckCheck, Loader2, MessageSquareDashed } from 'lucide-react'
+import { Loader2, MessageSquareDashed } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 import { Avatar } from '@/components/ui/avatar'
 import { Skeleton } from '@/components/ui/primitives'
+import { useCurrentUser } from '@/features/auth/session'
 import { cn } from '@/lib/cn'
 import { formatDayLabel, formatMessageTime } from '@/lib/format'
 import type { Conversation, Message } from '@/types'
-
-import { attachmentIcons, attachmentTone } from '../utils'
-
-function MessageStatusIcon({ message }: { message: Message }) {
-  if (message.status === 'sending') return <Loader2 className="size-3 animate-spin opacity-80" />
-  if (message.status === 'failed') return <span className="text-[10px] font-medium">Error</span>
-  if (message.status === 'sent') return <Check className="size-3.5 opacity-80" />
-  return <CheckCheck className={cn('size-3.5', message.status === 'read' ? 'opacity-100' : 'opacity-70')} />
-}
-
-function AttachmentCard({ message }: { message: Message }) {
-  if (!message.attachment) return null
-  const Icon = attachmentIcons[message.attachment.kind]
-  const mine = message.authorId === 'me'
-
-  return (
-    <div
-      className={cn(
-        'mt-2 flex items-center gap-2.5 rounded-xl px-2.5 py-2 ring-1',
-        mine ? 'bg-white/15 ring-white/20' : 'bg-white ring-line',
-      )}
-    >
-      <span
-        className={cn(
-          'grid size-8 shrink-0 place-items-center rounded-lg',
-          mine ? 'bg-white/20 text-white' : attachmentTone[message.attachment.kind],
-        )}
-      >
-        <Icon className="size-4" />
-      </span>
-      <div className="min-w-0">
-        <p
-          className={cn(
-            'truncate text-[12px] font-semibold',
-            mine ? 'text-white' : 'text-ink-800',
-          )}
-        >
-          {message.attachment.name}
-        </p>
-        <p className={cn('text-[10.5px]', mine ? 'text-white/70' : 'text-ink-400')}>
-          {message.attachment.size}
-        </p>
-      </div>
-    </div>
-  )
-}
 
 interface BubbleProps {
   message: Message
   conversation: Conversation
   showAuthor: boolean
+  mine: boolean
 }
 
-function Bubble({ message, conversation, showAuthor }: BubbleProps) {
-  const mine = message.authorId === 'me'
+function Bubble({ message, conversation, showAuthor, mine }: BubbleProps) {
   const isGroup = conversation.type === 'group'
 
   return (
@@ -69,11 +24,7 @@ function Bubble({ message, conversation, showAuthor }: BubbleProps) {
       {!mine ? (
         <div className="w-8 shrink-0">
           {showAuthor ? (
-            <Avatar
-              name={message.authorName}
-              size="xs"
-              accent={isGroup ? undefined : conversation.accent}
-            />
+            <Avatar name={message.authorName || 'Usuario'} photoUrl={message.authorPhotoUrl} size="xs" />
           ) : null}
         </div>
       ) : null}
@@ -81,7 +32,9 @@ function Bubble({ message, conversation, showAuthor }: BubbleProps) {
       <div className={cn('flex max-w-[78%] flex-col', mine ? 'items-end' : 'items-start')}>
         {!mine && showAuthor ? (
           <div className="mb-1 flex items-center gap-1.5 pl-1">
-            <span className="text-[11.5px] font-semibold text-ink-700">{message.authorName}</span>
+            <span className="text-[11.5px] font-semibold text-ink-700">
+              {message.authorName || (isGroup ? 'Miembro' : conversation.title)}
+            </span>
             <span className="text-[10.5px] text-ink-400">{formatMessageTime(message.createdAt)}</span>
           </div>
         ) : null}
@@ -93,10 +46,10 @@ function Bubble({ message, conversation, showAuthor }: BubbleProps) {
               ? 'rounded-2xl rounded-tr-md bg-brand-600 text-white'
               : 'rounded-2xl rounded-tl-md bg-[#f1f3f9] text-ink-800',
             message.status === 'sending' && 'opacity-80',
+            message.status === 'failed' && 'ring-1 ring-inset ring-rose-300',
           )}
         >
-          {message.body ? <p className="whitespace-pre-wrap break-words">{message.body}</p> : null}
-          <AttachmentCard message={message} />
+          <p className="whitespace-pre-wrap break-words">{message.body}</p>
         </div>
 
         <div
@@ -106,7 +59,10 @@ function Bubble({ message, conversation, showAuthor }: BubbleProps) {
           )}
         >
           <span>{formatMessageTime(message.createdAt)}</span>
-          {mine ? <MessageStatusIcon message={message} /> : null}
+          {message.status === 'sending' ? <Loader2 className="size-3 animate-spin" /> : null}
+          {message.status === 'failed' ? (
+            <span className="font-medium text-rose-500">No enviado</span>
+          ) : null}
         </div>
       </div>
     </div>
@@ -122,6 +78,8 @@ interface MessageListProps {
 export function MessageList({ conversation, messages, isLoading }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const lastCount = useRef(0)
+  const user = useCurrentUser()
+  const currentUserId = user?.id ?? null
 
   useEffect(() => {
     const element = scrollRef.current
@@ -173,6 +131,7 @@ export function MessageList({ conversation, messages, isLoading }: MessageListPr
           const previous = messages[index - 1]
           const dateLabel = formatDayLabel(message.createdAt)
           const showDate = !previous || dateLabel !== formatDayLabel(previous.createdAt)
+          const mine = Boolean(currentUserId) && message.authorId === currentUserId
 
           if (message.kind === 'system') {
             return (
@@ -203,12 +162,16 @@ export function MessageList({ conversation, messages, isLoading }: MessageListPr
                 transition={{ duration: 0.18, ease: 'easeOut' }}
                 className={showAuthor ? 'mt-2' : 'mt-0.5'}
               >
-                <Bubble message={message} conversation={conversation} showAuthor={showAuthor} />
+                <Bubble
+                  message={message}
+                  conversation={conversation}
+                  showAuthor={showAuthor}
+                  mine={mine}
+                />
               </motion.div>
             </div>
           )
         })}
-
       </div>
     </div>
   )

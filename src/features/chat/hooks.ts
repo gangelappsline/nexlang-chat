@@ -1,106 +1,114 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import type { Conversation, ConversationDetail, Message } from '@/types'
+import { useCurrentUser } from '@/features/auth/session'
+import type { Conversation, Message } from '@/types'
 
-import {
-  chatApi,
-  type CreateConversationPayload,
-  type SendMessagePayload,
-  type UpdateConversationPayload,
-} from './api'
+import { chatApi, type CreateConversationInput, type SendMessageInput } from './api'
+import { applyReadMarks, setReadMark } from './read-state'
 
 export const chatKeys = {
   all: ['chat'] as const,
-  list: () => ['chat', 'conversations'] as const,
-  conversation: (id: string) => ['chat', 'conversation', id] as const,
-  directory: () => ['chat', 'directory'] as const,
+  /** Prefijo de todas las listas (útil para invalidar sin conocer el usuario). */
+  conversations: () => ['chat', 'conversations'] as const,
+  conversationList: (userId: string | null) =>
+    ['chat', 'conversations', userId ?? 'me'] as const,
+  messages: (conversationId: string) => ['chat', 'messages', conversationId] as const,
+  users: (userId: string | null) => ['chat', 'users', userId ?? 'me'] as const,
 }
 
-/* ------------------------------------------------------------------ */
-/* queries                                                            */
-/* ------------------------------------------------------------------ */
+/** La bandeja se refresca sola para reflejar mensajes y no leídos. */
+const LIST_POLL_MS = 20_000
+const THREAD_POLL_MS = 12_000
+
+/* -------------------------------------------------------------------------- */
+/* queries                                                                    */
+/* -------------------------------------------------------------------------- */
 
 export function useConversations() {
+  const user = useCurrentUser()
+  const userId = user?.id ?? null
+
   return useQuery({
-    queryKey: chatKeys.list(),
-    queryFn: chatApi.list,
-    staleTime: 15_000,
+    queryKey: chatKeys.conversationList(userId),
+    queryFn: async () => applyReadMarks(await chatApi.conversations(userId)),
+    staleTime: 10_000,
+    refetchInterval: LIST_POLL_MS,
   })
 }
 
-export function useConversation(id: string | undefined) {
+export function useMessages(conversationId: string | undefined) {
   return useQuery({
-    queryKey: chatKeys.conversation(id ?? 'none'),
-    queryFn: () => chatApi.detail(id as string),
-    enabled: Boolean(id),
-    staleTime: 10_000,
+    queryKey: chatKeys.messages(conversationId ?? 'none'),
+    queryFn: () => chatApi.messages(conversationId as string),
+    enabled: Boolean(conversationId),
+    staleTime: 5_000,
+    refetchInterval: THREAD_POLL_MS,
   })
 }
 
 export function useDirectory(enabled = true) {
+  const user = useCurrentUser()
+  const userId = user?.id ?? null
+
   return useQuery({
-    queryKey: chatKeys.directory(),
-    queryFn: chatApi.directory,
+    queryKey: chatKeys.users(userId),
+    queryFn: () => chatApi.users(userId),
     staleTime: 5 * 60_000,
     enabled,
   })
 }
 
-/* ------------------------------------------------------------------ */
-/* mutations                                                          */
-/* ------------------------------------------------------------------ */
+/* -------------------------------------------------------------------------- */
+/* mutations                                                                  */
+/* -------------------------------------------------------------------------- */
 
 export function useSendMessage(conversationId: string) {
   const queryClient = useQueryClient()
-  const key = chatKeys.conversation(conversationId)
+  const user = useCurrentUser()
+  const key = chatKeys.messages(conversationId)
 
   return useMutation({
-    mutationFn: (payload: SendMessagePayload) => chatApi.send(conversationId, payload),
+    mutationFn: (input: SendMessageInput) => chatApi.send(conversationId, input),
 
-    onMutate: async (payload) => {
+    onMutate: async ({ text }) => {
       await queryClient.cancelQueries({ queryKey: key })
-      const previous = queryClient.getQueryData<ConversationDetail>(key)
+      const previous = queryClient.getQueryData<Message[]>(key)
       const optimistic: Message = {
         id: `optimistic-${Date.now()}`,
         conversationId,
-        role: 'agent',
-        authorId: 'me',
-        authorName: 'Tú',
-        body: payload.body,
+        authorId: user?.id ?? '',
+        authorName: user?.name ?? 'Tú',
+        authorPhotoUrl: user?.avatarUrl ?? null,
+        body: text,
+        kind: 'text',
         createdAt: new Date().toISOString(),
         status: 'sending',
-        kind: 'text',
-        attachment: payload.attachment ?? null,
       }
 
-      queryClient.setQueryData<ConversationDetail>(key, (old) =>
-        old ? { ...old, messages: [...old.messages, optimistic] } : old,
-      )
+      queryClient.setQueryData<Message[]>(key, (old) => [...(old ?? []), optimistic])
 
       return { previous, optimisticId: optimistic.id }
     },
 
-    onError: (_error, _payload, context) => {
+    onError: (_error, _input, context) => {
       if (context?.previous) queryClient.setQueryData(key, context.previous)
+      else queryClient.setQueryData<Message[]>(key, (old) =>
+        (old ?? []).filter((message) => message.id !== context?.optimisticId),
+      )
     },
 
-    onSuccess: (message, _payload, context) => {
-      queryClient.setQueryData<ConversationDetail>(key, (old) =>
-        old
-          ? {
-              ...old,
-              messages: [
-                ...old.messages.filter((item) => item.id !== context?.optimisticId),
-                message,
-              ],
-            }
-          : old,
+    onSuccess: (message, _input, context) => {
+      if (!message) return
+      queryClient.setQueryData<Message[]>(key, (old) =>
+        (old ?? [])
+          .filter((item) => item.id !== context?.optimisticId)
+          .concat(old?.some((item) => item.id === message.id) ? [] : [message]),
       )
     },
 
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: key })
-      void queryClient.invalidateQueries({ queryKey: chatKeys.list() })
+      void queryClient.invalidateQueries({ queryKey: chatKeys.conversations() })
     },
   })
 }
@@ -109,34 +117,20 @@ export function useMarkRead() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (id: string) => chatApi.markRead(id),
-    onMutate: (id) => {
-      queryClient.setQueryData<Conversation[]>(chatKeys.list(), (old) =>
-        old?.map((conversation) =>
-          conversation.id === id ? { ...conversation, unreadCount: 0 } : conversation,
-        ),
-      )
+    mutationFn: async (conversation: Conversation) => {
+      setReadMark(conversation.id, conversation.lastMessage?.id ?? null)
+      try {
+        await chatApi.markRead(conversation.id)
+      } catch {
+        // El endpoint de lectura es opcional: el contador ya se limpió en local.
+      }
     },
-    onError: () => {
-      void queryClient.invalidateQueries({ queryKey: chatKeys.list() })
-    },
-  })
-}
 
-export function useUpdateConversation() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: UpdateConversationPayload }) =>
-      chatApi.update(id, patch),
-
-    onSuccess: (conversation) => {
-      queryClient.setQueryData<Conversation[]>(chatKeys.list(), (old) =>
-        old?.map((item) => (item.id === conversation.id ? conversation : item)),
-      )
-      queryClient.setQueryData<ConversationDetail>(
-        chatKeys.conversation(conversation.id),
-        (old) => (old ? { ...old, conversation } : old),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: chatKeys.conversations() })
+      void queryClient.setQueriesData<Conversation[]>(
+        { queryKey: chatKeys.conversations() },
+        (old) => (Array.isArray(old) ? applyReadMarks(old) : old),
       )
     },
   })
@@ -144,14 +138,22 @@ export function useUpdateConversation() {
 
 export function useCreateConversation() {
   const queryClient = useQueryClient()
+  const user = useCurrentUser()
 
   return useMutation({
-    mutationFn: (payload: CreateConversationPayload) => chatApi.create(payload),
+    mutationFn: (input: CreateConversationInput) => chatApi.create(input, user?.id ?? null),
+
     onSuccess: (conversation) => {
-      queryClient.setQueryData<Conversation[]>(chatKeys.list(), (old) =>
-        old ? [conversation, ...old] : [conversation],
-      )
-      void queryClient.invalidateQueries({ queryKey: chatKeys.list() })
+      if (conversation) {
+        queryClient.setQueriesData<Conversation[]>(
+          { queryKey: chatKeys.conversations() },
+          (old) =>
+            Array.isArray(old)
+              ? [conversation, ...old.filter((item) => item.id !== conversation.id)]
+              : old,
+        )
+      }
+      void queryClient.invalidateQueries({ queryKey: chatKeys.conversations() })
     },
   })
 }
