@@ -10,8 +10,12 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# Archivos locales con secretos: nunca se versionan.
+# Los .env, .env.development, .env.production y .env.staging sí se versionan
+# porque solo contienen variables públicas (prefijo VITE_).
+.env.local
+.env.*.local
 *.local
-.env
 
 # Editor directories and files
 .vscode/*
