@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 
 import { LogoMark } from '@/components/brand/logo'
 import { Button } from '@/components/ui/button'
+import { CallCenter } from '@/features/calls/components/call-center'
 import { cn } from '@/lib/cn'
 import { useMediaQuery } from '@/lib/use-media-query'
 
@@ -176,6 +177,8 @@ export default function ChatPage() {
         onClose={() => setDialogOpen(false)}
         onCreated={(id) => navigate(`/c/${id}`)}
       />
+
+      <CallCenter />
     </div>
   )
 }

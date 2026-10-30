@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { Avatar, AvatarStack } from '@/components/ui/avatar'
 import { IconButton } from '@/components/ui/button'
 import { useCurrentUser } from '@/features/auth/session'
+import { CallActions } from '@/features/calls/components/call-actions'
 import type { Conversation } from '@/types'
 
 import { otherParticipants } from '../utils'
@@ -78,6 +79,8 @@ export function ChatHeader({
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">
+        <CallActions conversation={conversation} />
+
         <IconButton label="Copiar enlace" className="hidden sm:inline-flex" onClick={() => void copyLink()}>
           <Copy className="size-[17px]" />
         </IconButton>

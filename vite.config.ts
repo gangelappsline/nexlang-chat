@@ -18,6 +18,18 @@ export default defineConfig({
     strictPort: true,
     // The app is served through a preview proxy, so accept any forwarded host.
     allowedHosts: true,
+    // El servidor de señalización (`npm run signaling`) vive en :8081 y se
+    // expone en el mismo origen que la app para evitar CORS y mezclar ws/wss.
+    proxy: {
+      '/signaling': {
+        target: 'ws://127.0.0.1:8081',
+        ws: true,
+        changeOrigin: true,
+        // El servidor escucha en `/`; el prefijo del proxy se recorta igual que
+        // hará nginx (`proxy_pass http://127.0.0.1:8081/;`).
+        rewrite: (path) => path.replace(/^\/signaling/, '/'),
+      },
+    },
   },
   preview: {
     host: '0.0.0.0',

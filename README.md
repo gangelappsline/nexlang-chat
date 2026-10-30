@@ -1,8 +1,9 @@
 # Nexlang Chat
 
 Aplicación de mensajería para equipos inspirada en Slack y Microsoft Teams: chats directos,
-grupos de trabajo y bandeja de conversaciones con último mensaje, contador de no leídos y panel
-de participantes. Todas las conversaciones y mensajes vienen de la API real.
+grupos de trabajo, bandeja de conversaciones con último mensaje, contador de no leídos, panel de
+participantes y **llamadas y videollamadas propias** (WebRTC, sin servicios de terceros). Todas
+las conversaciones y mensajes vienen de la API real.
 
 El acceso funciona con **código de un solo uso enviado al correo** y el panel solo se renderiza
 cuando existe un **token válido + el perfil del usuario** en la sesión.
@@ -25,6 +26,7 @@ cuando existe un **token válido + el perfil del usuario** en la sesión.
 | Formularios | **React Hook Form** + **Zod** (`@hookform/resolvers`) |
 | Iconos | **Lucide React** |
 | Notificaciones | **Sonner** |
+| Llamadas | **WebRTC nativo** (P2P) + servidor de señalización propio con `ws` |
 | Utilidades | `clsx`, `tailwind-merge`, `date-fns` (locale `es`) |
 | Tipografía | `@fontsource-variable/inter` (fuente local, sin CDN) |
 
@@ -44,6 +46,8 @@ npm run dev                  # http://localhost:5176
 | `npm run dev:staging` | `staging` | `.env` + `.env.staging` |
 | `npm run build` | `production` | `.env` + `.env.production` |
 | `npm run build:staging` | `staging` | `.env` + `.env.staging` |
+| `npm run signaling` | servidor de señalización de llamadas | `SIGNALING_*` (ver abajo) |
+| `npm run signaling:dev` | igual, con recarga automática (`node --watch`) | `SIGNALING_*` |
 | `npm run preview` | sirve `dist/` | — (ya vienen compiladas) |
 | `npm run lint` | ESLint (reglas del React Compiler) | — |
 | `npm run typecheck` | `tsc -b` | — |
@@ -73,6 +77,10 @@ Vite carga los archivos en cascada; **el último gana**:
 | `VITE_ENVIRONMENT` | `production` | entorno lógico que se muestra en el menú de cuenta |
 | `VITE_REQUEST_TIMEOUT_MS` | `20000` | timeout por petición |
 | `VITE_DEBUG_REQUESTS` | `false` | loguea método + URL en consola |
+| `VITE_SIGNALING_URL` | `auto` | servidor de señalización: `auto` = mismo origen (`wss://tu-dominio/signaling`) o una URL `ws(s)://` |
+| `VITE_STUN_URLS` | `stun:turn.nexlang.io:3478` | servidores STUN (lista separada por comas) |
+| `VITE_TURN_URL` | `turn:turn.nexlang.io:3478` | TURN propio (coturn) para atravesar NAT estricto |
+| `VITE_TURN_USERNAME` / `VITE_TURN_CREDENTIAL` | — | credenciales del TURN |
 | `VITE_APP_NAME` | `Nexlang Chat` | nombre visible de la app |
 
 > Solo las variables con prefijo `VITE_` llegan al navegador: **nunca guardes secretos** en ellas.
@@ -218,6 +226,132 @@ Si las rutas de tu backend cambian, solo hay que editar `src/lib/api/endpoints.t
 
 ---
 
+## Llamadas y videollamadas
+
+Todo es propio: **WebRTC** en el navegador y un **servidor de señalización incluido en este
+repo** (`server/signaling`). No interviene Zoom, Twilio, Daily, Agora ni ningún SDK externo.
+
+```
+┌──────────┐   oferta/respuesta/ICE (WebSocket)   ┌────────────────────┐
+│  App A   │ ───────────────────────────────────► │ server/signaling   │
+│ (React)  │ ◄─────────────────────────────────── │  (Node + ws)       │
+└────┬─────┘                                      └─────────┬──────────┘
+     │                                                      │
+     │            audio + vídeo P2P (WebRTC, SRTP)          │
+     └──────────────────────────────────────────────────────┘
+                      App B (otro navegador)
+```
+
+* **Sin límite de tiempo**: el audio y el vídeo van directos entre navegadores; el servidor solo
+  reenvía unos pocos mensajes al inicio. Nada corta la llamada a los X minutos.
+* **Sigue si se cae la señalización**: al establecerse el P2P, la llamada continúa; el cliente
+  reconecta el WebSocket en segundo plano y muestra un aviso discreto.
+* **Siempre disponible mientras la app esté abierta**: no hay software que instalar. (No hay push
+  nativo: si el navegador está cerrado, la llamada no puede sonar.)
+* **Grupos**: malla P2P hasta **6 personas** (cada participante envía su media a cada par).
+
+### Probar en local
+
+```bash
+# terminal 1 · app
+npm run dev
+
+# terminal 2 · señalización (el proxy de Vite la expone en /signaling)
+npm run signaling
+```
+
+Abre `http://localhost:5176` en dos navegadores (o dos perfiles) con **usuarios distintos**,
+entra a la misma conversación y pulsa el teléfono o la cámara del encabezado.
+
+### Cómo se comporta la UI
+
+| Estado | Qué se ve |
+| --- | --- |
+| `dialing` | panel flotante “Llamando…” con opción de colgar |
+| `incoming` | tarjeta con avatar, tipo de llamada y botones **Aceptar / Rechazar** (suena un tono generado con Web Audio) |
+| `connecting` | “Conectando…” mientras se intercambian SDP e ICE |
+| `active` | cronómetro, vídeo remoto + miniatura local (o avatar en llamadas de voz) |
+| controles | silenciar micrófono, encender/apagar cámara, compartir pantalla y colgar |
+
+Otras reglas: si ya estás en una llamada se responde `busy`; una llamada saliente se cancela sola
+a los 45 s y una entrante se descarta a los 60 s; el aviso de “no está conectado” aparece cuando
+la persona no tiene la app abierta.
+
+### Desplegar
+
+1. **Servidor de señalización** (Node ≥ 20, ya incluye `ws`):
+
+   ```bash
+   SIGNALING_PORT=8081 \
+   SIGNALING_ALLOWED_ORIGINS=https://chat.nexlang.io \
+   SIGNALING_VERIFY_URL=https://api.nexlang.io/api/v1/chat/conversations \
+   node server/signaling/index.mjs
+   ```
+
+   | Variable | Por defecto | Uso |
+   | --- | --- | --- |
+   | `SIGNALING_PORT` | `8081` | puerto HTTP/WS |
+   | `SIGNALING_HOST` | `0.0.0.0` | interfaz |
+   | `SIGNALING_ALLOWED_ORIGINS` | `*` | orígenes permitidos (`*.mi-dominio.com` también vale) |
+   | `SIGNALING_REQUIRE_TOKEN` | `true` | exige `?token=` |
+   | `SIGNALING_VERIFY_URL` | — | endpoint autenticado de la API para validar el token |
+   | `SIGNALING_MAX_MESSAGE_BYTES` | `65536` | tamaño máximo por mensaje |
+   | `SIGNALING_MAX_MESSAGES_PER_SECOND` | `60` | límite anti-abuso por conexión |
+   | `SIGNALING_HEARTBEAT_MS` | `30000` | ping/pong |
+
+2. **Proxy TLS** (nginx) para que el navegador use `wss://`:
+
+   ```nginx
+   location /signaling {
+     proxy_pass http://127.0.0.1:8081/;   # la barra final recorta /signaling
+     proxy_http_version 1.1;
+     proxy_set_header Upgrade $http_upgrade;
+     proxy_set_header Connection "upgrade";
+     proxy_set_header Host $host;
+     proxy_read_timeout 3600s;
+   }
+   ```
+
+3. **TURN propio (coturn)** para las redes que no permiten P2P directo (NAT simétrico, wifi
+   corporativa, 4G). Es infraestructura tuya, no un servicio de terceros:
+
+   ```bash
+   docker run -d --network host coturn/coturn \
+     -n --realm=nexlang.io --lt-cred-mech --user=nexlang:CLAVE \
+     --min-port=49160 --max-port=49200
+   ```
+
+   Y en el `.env` de la app:
+
+   ```
+   VITE_STUN_URLS=stun:turn.nexlang.io:3478
+   VITE_TURN_URL=turn:turn.nexlang.io:3478
+   VITE_TURN_USERNAME=nexlang
+   VITE_TURN_CREDENTIAL=CLAVE
+   ```
+
+   Sin TURN las llamadas funcionan en la mayoría de redes domésticas, pero pueden fallar en las
+   restrictivas. El TURN solo retransmite cuando hace falta (≈0,3–1,5 Mbps por llamada) y **no**
+   cobra ni limita por minuto.
+
+### Seguridad y límites (importante)
+
+* El servidor de señalización **nunca** ve el audio ni el vídeo: solo invitaciones, SDP y
+  candidatos ICE (cifrados en tránsito con `wss`).
+* El token de sesión viaja en la URL del WebSocket (`?token=…`) y, si defines
+  `SIGNALING_VERIFY_URL`, se valida contra la API antes de aceptar la conexión.
+* La identidad (`userId`) la declara el cliente en el mensaje `hello`. Para máxima seguridad,
+  conviene que tu API exponga un endpoint tipo `/v1/chat/me` y que `SIGNALING_VERIFY_URL` lo use
+  para devolver también el id: así el servidor podría fijar la identidad en lugar de confiar en el
+  cliente.
+* Hace falta **HTTPS** en producción (los navegadores solo dan micrófono/cámara en contextos
+  seguros).
+* Una misma cuenta abierta en dos pestañas: la última recibe las llamadas y la anterior se
+  desconecta (`session:replaced`).
+* La calidad depende de la red de cada participante; el vídeo se limita a 720p/30 fps por defecto.
+
+---
+
 ## Estructura
 
 ```
@@ -234,7 +368,10 @@ src/
 │   └── ui/               Button, Input, Avatar, Modal, Dropdown, Badge, Skeletons…
 ├── features/
 │   ├── auth/             servicio login-code / login-validation, sesión y pantalla
-│   └── chat/             api, hooks (queries/mutations con optimistic), componentes y página
+│   ├── chat/             api, hooks (queries/mutations con optimistic), componentes y página
+│   └── calls/            señalización, WebRTC, estado de llamada y componentes
+├── server/
+│   └── signaling/        servidor WebSocket de señalización (Node + ws)
 ├── routes/               guards de sesión
 ├── types/                modelos compartidos
 ├── App.tsx               providers + router + toasts
@@ -283,3 +420,6 @@ Los colores de marca viven en `@theme` (`src/index.css`): `brand` (índigo del i
 * El composer hace **actualización optimista** del mensaje y revierte si la API falla.
 * La bandeja y el hilo se actualizan por **polling**; `features/chat/hooks.ts` es el punto para
   añadir WebSocket/SSE invalidando las mismas query keys.
+* Las llamadas usan `features/calls/call-manager.ts` como máquina de estados (fuera de React) y
+  `features/calls/store.ts` (Zustand) como estado observable por la UI; así una llamada sigue
+  activa al cambiar de conversación.

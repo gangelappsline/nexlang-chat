@@ -10,7 +10,9 @@
     "build:staging": "tsc -b && vite build --mode staging",
     "preview": "vite preview",
     "lint": "eslint .",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "signaling": "node server/signaling/index.mjs",
+    "signaling:dev": "node --watch server/signaling/index.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
@@ -29,6 +31,7 @@
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",
+    "ws": "^8.22.0",
     "zod": "^4.6.7",
     "zustand": "^5.0.16"
   },

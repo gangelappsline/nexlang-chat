@@ -94,6 +94,7 @@ export function IconButton({
       className={cn(
         'inline-flex items-center justify-center rounded-xl text-ink-500 transition-colors',
         'hover:bg-ink-900/5 hover:text-ink-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500',
+        'disabled:pointer-events-none disabled:opacity-40',
         size === 'md' ? 'size-10' : 'size-8',
         active && 'bg-brand-50 text-brand-700 hover:bg-brand-100 hover:text-brand-700',
         className,
