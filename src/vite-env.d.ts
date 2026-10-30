@@ -13,6 +13,15 @@ interface ImportMetaEnv {
   /** `"true"` imprime las peticiones en consola. */
   readonly VITE_DEBUG_REQUESTS?: string
 
+  /** URL del servidor de señalización de llamadas (`ws://` o `wss://`). */
+  readonly VITE_SIGNALING_URL?: string
+  /** Servidores STUN separados por comas. */
+  readonly VITE_STUN_URLS?: string
+  /** Servidor TURN propio (necesario detrás de NAT estricto). */
+  readonly VITE_TURN_URL?: string
+  readonly VITE_TURN_USERNAME?: string
+  readonly VITE_TURN_CREDENTIAL?: string
+
   /** Modo de Vite (`development`, `production`, `staging`…). */
   readonly MODE: string
   readonly DEV: boolean
