@@ -9,6 +9,8 @@ const EMOJIS = ['😊', '🙌', '👍', '🎉', '✅', '🙏', '🔥', '💜', '
 
 interface ComposerProps {
   onSend: (text: string) => void
+  /** Se llama al escribir (el hook interno lo limita para no saturar). */
+  onTyping?: () => void
   placeholder?: string
   disabled?: boolean
   sending?: boolean
@@ -16,6 +18,7 @@ interface ComposerProps {
 
 export function Composer({
   onSend,
+  onTyping,
   placeholder = 'Escribe un mensaje…',
   disabled = false,
   sending = false,
@@ -63,7 +66,10 @@ export function Composer({
           <textarea
             ref={textareaRef}
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value)
+              if (event.target.value) onTyping?.()
+            }}
             onKeyDown={handleKeyDown}
             rows={1}
             placeholder={placeholder}

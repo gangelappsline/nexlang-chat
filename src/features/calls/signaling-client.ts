@@ -39,15 +39,19 @@ export class SignalingClient {
     return this.status
   }
 
-  onSignal(listener: SignalListener) {
+  onSignal(listener: SignalListener): () => void {
     this.signalListeners.add(listener)
-    return () => this.signalListeners.delete(listener)
+    return () => {
+      this.signalListeners.delete(listener)
+    }
   }
 
-  onStatus(listener: StatusListener) {
+  onStatus(listener: StatusListener): () => void {
     this.statusListeners.add(listener)
     listener(this.status)
-    return () => this.statusListeners.delete(listener)
+    return () => {
+      this.statusListeners.delete(listener)
+    }
   }
 
   connect(identity: SignalingIdentity) {
@@ -121,8 +125,11 @@ export class SignalingClient {
 
     socket.onopen = () => {
       this.reconnectAttempts = 0
-      this.setStatus('online')
+      // El `hello` debe salir antes de avisar de que estamos en línea: los
+      // listeners de estado envían sus propias tramas (p. ej. las
+      // suscripciones de chat) y el servidor las rechaza sin identidad.
       this.sendHello()
+      this.setStatus('online')
       this.startHeartbeat()
     }
 

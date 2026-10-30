@@ -48,6 +48,9 @@ const MAX_MESSAGE_BYTES = Number(process.env.SIGNALING_MAX_MESSAGE_BYTES ?? 64 *
 const MAX_MESSAGES_PER_SECOND = Number(process.env.SIGNALING_MAX_MESSAGES_PER_SECOND ?? 60)
 const HEARTBEAT_MS = Number(process.env.SIGNALING_HEARTBEAT_MS ?? 30_000)
 
+/** Mensajes de chat: no van a un usuario concreto sino a los suscritos a la conversación. */
+const CHAT_TYPES = new Set(['chat:subscribe', 'chat:message', 'chat:typing'])
+
 /** Mensajes que el servidor reenvía al destinatario. */
 const RELAY_TYPES = new Set([
   'call:invite',
@@ -142,6 +145,8 @@ async function verifyToken(token, origin) {
 const clients = new Map()
 /** callId → Set<userId> (para avisar a todos si alguien cuelga) */
 const calls = new Map()
+/** conversationId → Set<userId> suscritos a los eventos de esa conversación. */
+const conversationSubscribers = new Map()
 
 function send(socket, message) {
   if (socket.readyState !== WebSocket.OPEN) return
@@ -150,6 +155,38 @@ function send(socket, message) {
   } catch (error) {
     warn('no se pudo enviar el mensaje:', error?.message ?? error)
   }
+}
+
+const MAX_SUBSCRIPTIONS = 500
+
+/** Valida una lista de ids de conversación del mensaje `chat:subscribe`. */
+function validConversationIds(value) {
+  if (!Array.isArray(value)) return null
+  if (value.length > MAX_SUBSCRIPTIONS) return null
+
+  const ids = []
+  for (const item of value) {
+    const id = String(item ?? '')
+    if (!id || id.length > 64 || /[\s?#]/.test(id)) return null
+    ids.push(id)
+  }
+  return [...new Set(ids)]
+}
+
+/** Envía un evento de chat a todos los suscritos a la conversación. */
+function fanoutToConversation(conversationId, message, exceptUserId) {
+  const subscribers = conversationSubscribers.get(conversationId)
+  if (!subscribers) return 0
+
+  let delivered = 0
+  for (const userId of subscribers) {
+    if (userId === exceptUserId) continue
+    const target = clients.get(userId)
+    if (!target) continue
+    send(target.socket, message)
+    delivered += 1
+  }
+  return delivered
 }
 
 function broadcast(message, exceptUserId) {
@@ -223,6 +260,8 @@ wss.on('connection', async (socket, request) => {
 
   let userId = null
   let callId = null
+  /** Conversaciones a las que este cliente está suscrito. */
+  const subscriptions = new Set()
 
   socket.isAlive = true
   socket.on('pong', () => {
@@ -246,6 +285,14 @@ wss.on('connection', async (socket, request) => {
         if (members.size === 0) calls.delete(callId)
       }
     }
+
+    for (const conversationId of subscriptions) {
+      const subscribers = conversationSubscribers.get(conversationId)
+      if (!subscribers) continue
+      subscribers.delete(userId)
+      if (subscribers.size === 0) conversationSubscribers.delete(conversationId)
+    }
+    subscriptions.clear()
   }
 
   socket.on('message', (raw) => {
@@ -320,6 +367,63 @@ wss.on('connection', async (socket, request) => {
 
     /* ---------------------------- ping ----------------------------- */
     if (message.type === 'ping') return send(socket, { type: 'pong', at: Date.now() })
+
+    /* ------------------------ eventos de chat ---------------------- */
+    if (message.type === 'chat:subscribe') {
+      const ids = validConversationIds(message.conversationIds)
+      if (!ids) {
+        send(socket, { type: 'error', code: 'bad_message' })
+        return
+      }
+
+      for (const conversationId of subscriptions) {
+        const subscribers = conversationSubscribers.get(conversationId)
+        if (!subscribers) continue
+        subscribers.delete(userId)
+        if (subscribers.size === 0) conversationSubscribers.delete(conversationId)
+      }
+      subscriptions.clear()
+
+      for (const conversationId of ids) {
+        const subscribers = conversationSubscribers.get(conversationId) ?? new Set()
+        subscribers.add(userId)
+        conversationSubscribers.set(conversationId, subscribers)
+        subscriptions.add(conversationId)
+      }
+
+      send(socket, { type: 'chat:subscribed', conversationIds: [...subscriptions] })
+      return
+    }
+
+    if (CHAT_TYPES.has(message.type)) {
+      const conversationId = String(message.conversationId ?? '')
+      if (!conversationId || conversationId.length > 64 || /[\s?#]/.test(conversationId)) {
+        send(socket, { type: 'error', code: 'bad_message' })
+        return
+      }
+
+      // Solo se reenvían eventos de conversaciones a las que el emisor está suscrito.
+      if (!subscriptions.has(conversationId)) {
+        send(socket, { type: 'error', code: 'not_subscribed', conversationId })
+        return
+      }
+
+      fanoutToConversation(
+        conversationId,
+        {
+          type: message.type,
+          conversationId,
+          ...(message.type === 'chat:message'
+            ? { messageId: truncate(String(message.messageId ?? ''), 64) }
+            : {}),
+          from: userId,
+          fromName: entry.name || undefined,
+          relayedAt: Date.now(),
+        },
+        userId,
+      )
+      return
+    }
 
     /* --------------------------- relay ----------------------------- */
     if (!RELAY_TYPES.has(message.type)) {
