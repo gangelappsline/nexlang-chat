@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useCurrentUser } from '@/features/auth/session'
+import { signalingClient } from '@/features/calls/signaling-client'
+import { useCallStore } from '@/features/calls/store'
 import type { Conversation, Message } from '@/types'
 
 import { chatApi, type CreateConversationInput, type SendMessageInput } from './api'
@@ -16,9 +18,18 @@ export const chatKeys = {
   users: (userId: string | null) => ['chat', 'users', userId ?? 'me'] as const,
 }
 
-/** La bandeja se refresca sola para reflejar mensajes y no leídos. */
+/**
+ * Sondeo de respaldo. Con el socket en tiempo real conectado los intervalos se
+ * alargan (los mensajes llegan al instante); si se cae, vuelven al ritmo normal.
+ */
 const LIST_POLL_MS = 20_000
 const THREAD_POLL_MS = 12_000
+const LIST_POLL_REALTIME_MS = 60_000
+const THREAD_POLL_REALTIME_MS = 60_000
+
+function useRealtimeConnected() {
+  return useCallStore((state) => state.connection === 'online')
+}
 
 /* -------------------------------------------------------------------------- */
 /* queries                                                                    */
@@ -27,22 +38,25 @@ const THREAD_POLL_MS = 12_000
 export function useConversations() {
   const user = useCurrentUser()
   const userId = user?.id ?? null
+  const realtime = useRealtimeConnected()
 
   return useQuery({
     queryKey: chatKeys.conversationList(userId),
     queryFn: async () => applyReadMarks(await chatApi.conversations(userId)),
     staleTime: 10_000,
-    refetchInterval: LIST_POLL_MS,
+    refetchInterval: realtime ? LIST_POLL_REALTIME_MS : LIST_POLL_MS,
   })
 }
 
 export function useMessages(conversationId: string | undefined) {
+  const realtime = useRealtimeConnected()
+
   return useQuery({
     queryKey: chatKeys.messages(conversationId ?? 'none'),
     queryFn: () => chatApi.messages(conversationId as string),
     enabled: Boolean(conversationId),
     staleTime: 5_000,
-    refetchInterval: THREAD_POLL_MS,
+    refetchInterval: realtime ? THREAD_POLL_REALTIME_MS : THREAD_POLL_MS,
   })
 }
 
@@ -98,6 +112,13 @@ export function useSendMessage(conversationId: string) {
     },
 
     onSuccess: (message, _input, context) => {
+      // Avisa a los demás participantes para que refresquen al instante.
+      signalingClient.send({
+        type: 'chat:message',
+        conversationId,
+        messageId: message?.id ?? '',
+      })
+
       if (!message) return
       queryClient.setQueryData<Message[]>(key, (old) =>
         (old ?? [])

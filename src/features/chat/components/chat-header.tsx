@@ -11,6 +11,8 @@ import { otherParticipants } from '../utils'
 
 interface ChatHeaderProps {
   conversation: Conversation
+  /** Texto como "Ana está escribiendo…" (tiempo real). */
+  typingLabel?: string | null
   infoOpen: boolean
   onBack: () => void
   onToggleInfo: () => void
@@ -18,6 +20,7 @@ interface ChatHeaderProps {
 
 export function ChatHeader({
   conversation,
+  typingLabel,
   infoOpen,
   onBack,
   onToggleInfo,
@@ -64,7 +67,16 @@ export function ChatHeader({
         <h2 className="truncate text-[14.5px] font-semibold text-ink-900">{conversation.title}</h2>
 
         <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-ink-500">
-          {isGroup ? (
+          {typingLabel ? (
+            <span className="flex min-w-0 items-center gap-1.5 text-brand-600">
+              <span className="flex gap-0.5">
+                <span className="size-1 animate-bounce rounded-full bg-brand-500 [animation-delay:0ms]" />
+                <span className="size-1 animate-bounce rounded-full bg-brand-500 [animation-delay:120ms]" />
+                <span className="size-1 animate-bounce rounded-full bg-brand-500 [animation-delay:240ms]" />
+              </span>
+              <span className="truncate">{typingLabel}</span>
+            </span>
+          ) : isGroup ? (
             <>
               <UsersRound className="size-3 text-ink-400" />
               <span className="truncate">

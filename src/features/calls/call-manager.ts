@@ -119,7 +119,8 @@ class CallManager {
 
   detach() {
     this.hangup({ silent: true })
-    signalingClient.disconnect()
+    // La conexión la comparte el módulo de tiempo real: aquí solo se sueltan
+    // los listeners de llamadas.
     this.offSignal?.()
     this.offStatus?.()
     this.offSignal = null

@@ -93,23 +93,31 @@ export type CallSignal =
   | { type: 'call:answer'; to: string; callId: string; sdp: RTCSessionDescriptionInit }
   | { type: 'call:ice'; to: string; callId: string; candidate: RTCIceCandidateInit }
 
+/** Eventos de chat (no llevan contenido: solo avisan de que hay algo nuevo). */
+export type ChatSignal =
+  | { type: 'chat:message'; conversationId: string; messageId?: string }
+  | { type: 'chat:typing'; conversationId: string }
+
 export type ClientSignal =
   | { type: 'hello'; userId: string; name?: string }
   | { type: 'ping' }
+  | { type: 'chat:subscribe'; conversationIds: string[] }
   | CallSignal
+  | ChatSignal
 
 /** Metadatos que el servidor agrega al reenviar un mensaje. */
 type Relayed<T> = T extends unknown
   ? T & { from: string; fromName?: string; relayedAt?: number }
   : never
 
-export type RelayedSignal = Relayed<CallSignal>
+export type RelayedSignal = Relayed<CallSignal | ChatSignal>
 
 export type ServerSignal =
   | { type: 'hello'; ok: boolean; userId: string; online: string[]; serverTime: number }
   | { type: 'pong'; at: number }
   | { type: 'presence'; userId: string; status: 'online' | 'offline'; name?: string }
-  | { type: 'error'; code: string; received?: string }
+  | { type: 'error'; code: string; received?: string; conversationId?: string }
+  | { type: 'chat:subscribed'; conversationIds: string[] }
   | { type: 'session:replaced' }
   | { type: 'call:unavailable'; callId: string; to: string }
   | RelayedSignal

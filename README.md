@@ -352,6 +352,74 @@ la persona no tiene la app abierta.
 
 ---
 
+## Tiempo real (mensajes al instante)
+
+Los mensajes nuevos aparecen **sin refrescar**, la bandeja se reordena con el último mensaje y su
+marca de no leídos, y se ve quién está escribiendo. Todo se apoya en el **mismo servidor WebSocket
+de este repo** (`server/signaling`): no hay Pusher, Ably, Firebase ni Supabase, y no hay ningún
+coste por mensaje. Si ese servidor no está arrancado, la app sigue funcionando con sondeo
+periódico: solo se pierde la inmediatez.
+
+```
+┌──────────┐  chat:subscribe / chat:message  ┌────────────────────┐
+│  App A   │ ──────────────────────────────► │ server/signaling   │
+│ (React)  │ ◄────────────────────────────── │  (Node + ws)       │
+└────┬─────┘        aviso, sin contenido     └─────────┬──────────┘
+     │                                                 │
+     │   GET /v1/chat/conversations/{id}/messages      │
+     ▼                                                 ▼
+  API de chats  ◄────────────  App B  (refresca al recibir el aviso)
+```
+
+### Por qué así
+
+* **El socket no transporta mensajes**: solo avisa de que una conversación tiene novedades
+  (`chat:message`) o de que alguien escribe (`chat:typing`). El texto se pide siempre a la API.
+* **La API sigue siendo la fuente de verdad**: si alguien pierde el acceso a una conversación, la
+  API se lo negará al refrescar. No se inyecta contenido desde el socket en la caché de TanStack
+  Query; solo se invalidan las consultas afectadas.
+* **Cero dependencias nuevas**: se reutiliza el `ws` que ya se instaló para las llamadas.
+
+### Protocolo
+
+| Cliente → servidor | Contenido | Efecto |
+| --- | --- | --- |
+| `chat:subscribe` | `conversationIds: string[]` | Sustituye las suscripciones (máx. 500) y responde `chat:subscribed` |
+| `chat:message` | `conversationId`, `messageId?` | Se reenvía a los demás suscritos de esa conversación |
+| `chat:typing` | `conversationId` | Igual, sin identificador de mensaje |
+
+El servidor responde con `{ type, conversationId, messageId?, from, fromName, relayedAt }` y **nunca**
+con el texto del mensaje. Un emisor suscrito a otra conversación recibe `error: not_subscribed`; un
+`conversationId` inválido devuelve `error: bad_message`.
+
+### Comportamiento
+
+* **Al enviar**: el mensaje se pinta al instante (optimista) y, cuando la API confirma, se emite
+  `chat:message` para que el resto refresque.
+* **Al recibir**: se invalidan la lista de conversaciones y el hilo de esa conversación; el
+  contenido lo trae la API con el token de la sesión.
+* **Escribiendo…**: se muestra en la cabecera del chat con puntos animados; caduca solo a los
+  **4,5 s** sin avisos nuevos y el emisor lo manda como máximo cada **2,2 s**.
+* **Pestaña en segundo plano**: al volver se refresca todo; si estaba oculta, se muestra un *toast*
+  con el nombre de quien escribió.
+* **Reconexión**: al recuperar el socket se reenvían las suscripciones y se refresca la bandeja,
+  así que no se pierde nada de lo ocurrido mientras estaba caído.
+* **Sondeo de respaldo**: 60 s con el socket conectado y 20 s (bandeja) / 12 s (hilo) si está caído.
+
+### Puesta en marcha
+
+Es la misma pieza que en las llamadas, no hay nada más que configurar:
+
+```bash
+npm run dev         # app
+npm run signaling   # servidor WS en el puerto 8081 (Vite lo expone en /signaling)
+```
+
+En producción, el `location /signaling { proxy_pass … }` de nginx descrito en
+[Desplegar](#desplegar) cubre también el chat.
+
+---
+
 ## Estructura
 
 ```
@@ -369,7 +437,8 @@ src/
 ├── features/
 │   ├── auth/             servicio login-code / login-validation, sesión y pantalla
 │   ├── chat/             api, hooks (queries/mutations con optimistic), componentes y página
-│   └── calls/            señalización, WebRTC, estado de llamada y componentes
+│   ├── calls/            señalización, WebRTC, estado de llamada y componentes
+│   └── realtime/         socket compartido, suscripciones, "escribiendo…" y refresco de caché
 ├── server/
 │   └── signaling/        servidor WebSocket de señalización (Node + ws)
 ├── routes/               guards de sesión
@@ -385,7 +454,8 @@ src/
 * **Panel** (`/`, `/c/:conversationId`): rail de navegación, bandeja con filtros
   (todos / no leídos / grupos), búsqueda (`⌘K`), orden, lista de conversaciones con último
   mensaje, hora y badge de no leídos, hilo de mensajes con burbujas agrupadas, composer
-  (emojis, envío con `Enter`) y panel derecho con los participantes de la conversación.
+  (emojis, envío con `Enter`), panel derecho con los participantes de la conversación y avisos en
+  tiempo real (mensajes nuevos, último mensaje y no leídos sin refrescar, «está escribiendo…»).
 * **Nueva conversación**: al elegir una persona se crea el chat directo al instante; en modo
   grupo se seleccionan varios participantes (y nombre opcional) y se crea al confirmar.
 

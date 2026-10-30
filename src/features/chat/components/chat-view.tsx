@@ -5,6 +5,8 @@ import { getErrorMessage } from '@/lib/api/errors'
 import { firstName } from '@/lib/format'
 import type { Conversation, Message } from '@/types'
 
+import { useTypingIndicator, useTypingPublisher } from '@/features/realtime/use-typing'
+
 import { useMarkRead, useSendMessage } from '../hooks'
 import { ChatHeader } from './chat-header'
 import { Composer } from './composer'
@@ -29,6 +31,8 @@ export function ChatView({
 }: ChatViewProps) {
   const sendMessage = useSendMessage(conversation.id)
   const markRead = useMarkRead()
+  const typingName = useTypingIndicator(conversation.id)
+  const publishTyping = useTypingPublisher(conversation.id)
   const readMarker = useRef<string | null>(null)
   const lastMessageId = conversation.lastMessage?.id ?? null
 
@@ -56,6 +60,7 @@ export function ChatView({
     <div className="flex h-full min-h-0 flex-1 flex-col bg-[#fbfbfe]">
       <ChatHeader
         conversation={conversation}
+        typingLabel={typingName ? `${typingName} está escribiendo…` : null}
         infoOpen={infoOpen}
         onBack={onBack}
         onToggleInfo={onToggleInfo}
@@ -65,6 +70,7 @@ export function ChatView({
 
       <Composer
         onSend={handleSend}
+        onTyping={publishTyping}
         sending={sendMessage.isPending}
         placeholder={
           conversation.type === 'group'
